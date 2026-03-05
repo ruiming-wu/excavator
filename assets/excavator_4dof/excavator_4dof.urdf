@@ -1,0 +1,164 @@
+<?xml version="1.0"?>
+<robot name="excavator_4dof">
+  <!--
+    Simple 4-DOF excavator model, fixed to world.
+    DOFs: swing, boom, arm, bucket
+  -->
+
+  <material name="yellow">
+    <color rgba="0.95 0.80 0.10 1.0"/>
+  </material>
+  <material name="dark_gray">
+    <color rgba="0.20 0.20 0.20 1.0"/>
+  </material>
+
+  <link name="world"/>
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <mass value="3000.0"/>
+      <inertia ixx="400.0" ixy="0.0" ixz="0.0" iyy="400.0" iyz="0.0" izz="400.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <geometry>
+        <box size="2.6 1.8 0.5"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <geometry>
+        <box size="2.6 1.8 0.5"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="world_fixed" type="fixed">
+    <parent link="world"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="house_link">
+    <inertial>
+      <origin xyz="0 0 0.45" rpy="0 0 0"/>
+      <mass value="2200.0"/>
+      <inertia ixx="180.0" ixy="0.0" ixz="0.0" iyy="180.0" iyz="0.0" izz="180.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.45" rpy="0 0 0"/>
+      <geometry>
+        <box size="1.4 1.2 0.9"/>
+      </geometry>
+      <material name="yellow"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.45" rpy="0 0 0"/>
+      <geometry>
+        <box size="1.4 1.2 0.9"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="swing_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="house_link"/>
+    <origin xyz="0 0 0.5" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.1416" upper="3.1416" effort="8000" velocity="0.8"/>
+    <dynamics damping="5.0" friction="2.0"/>
+  </joint>
+
+  <link name="boom_link">
+    <inertial>
+      <origin xyz="1.0 0 0" rpy="0 0 0"/>
+      <mass value="900.0"/>
+      <inertia ixx="90.0" ixy="0.0" ixz="0.0" iyy="120.0" iyz="0.0" izz="120.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="1.0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="2.0 0.35 0.35"/>
+      </geometry>
+      <material name="yellow"/>
+    </visual>
+    <collision>
+      <origin xyz="1.0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="2.0 0.35 0.35"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="boom_joint" type="revolute">
+    <parent link="house_link"/>
+    <child link="boom_link"/>
+    <origin xyz="0.65 0 0.75" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.3" upper="1.2" effort="7000" velocity="0.7"/>
+    <dynamics damping="8.0" friction="3.0"/>
+  </joint>
+
+  <link name="arm_link">
+    <inertial>
+      <origin xyz="0.8 0 0" rpy="0 0 0"/>
+      <mass value="600.0"/>
+      <inertia ixx="45.0" ixy="0.0" ixz="0.0" iyy="55.0" iyz="0.0" izz="55.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.8 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="1.6 0.28 0.28"/>
+      </geometry>
+      <material name="yellow"/>
+    </visual>
+    <collision>
+      <origin xyz="0.8 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="1.6 0.28 0.28"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="arm_joint" type="revolute">
+    <parent link="boom_link"/>
+    <child link="arm_link"/>
+    <origin xyz="2.0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.4" upper="0.6" effort="5000" velocity="0.9"/>
+    <dynamics damping="6.0" friction="2.5"/>
+  </joint>
+
+  <link name="bucket_link">
+    <inertial>
+      <origin xyz="0.25 0 -0.15" rpy="0 0 0"/>
+      <mass value="350.0"/>
+      <inertia ixx="20.0" ixy="0.0" ixz="0.0" iyy="25.0" iyz="0.0" izz="25.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.25 0 -0.15" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.5 0.6 0.3"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="0.25 0 -0.15" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.5 0.6 0.3"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="bucket_joint" type="revolute">
+    <parent link="arm_link"/>
+    <child link="bucket_link"/>
+    <origin xyz="1.6 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.8" upper="0.8" effort="3500" velocity="1.2"/>
+    <dynamics damping="4.0" friction="1.5"/>
+  </joint>
+
+</robot>
