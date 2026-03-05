@@ -1,0 +1,6 @@
+# ignore vscode settings
+.vscode/
+
+# ignore pycache files
+__pycache__/
+*.pyc
