@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import random
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict, Optional
 
 from excavator_sim.common import get_paths
 
@@ -21,9 +23,9 @@ class SceneRandomization:
     pile_x_max: float = 3.5
     pile_y_min: float = -1.0
     pile_y_max: float = 1.0
-    truck_len: float = 2.0
-    truck_wid: float = 1.0
-    truck_h: float = 0.8
+    truck_len: float = 3.0
+    truck_wid: float = 1.8
+    truck_h: float = 1.2
     truck_thickness: float = 0.04
     stone_count: int = 200
     stone_size_min: float = 0.05
@@ -40,6 +42,130 @@ class StoneSpec:
     sy: float
     sz: float
     z: float
+
+
+class _RosJointBridge:
+    def __init__(self, stage, excavator_prim: str):
+        from pxr import Sdf  # type: ignore
+
+        self._stage = stage
+        self._root = excavator_prim
+        self._Sdf = Sdf
+        self._rclpy = None
+        self._node = None
+        self._joint_msg_type = None
+        self._inited_here = False
+        self._last_pub_time = -1.0
+        self._pub_period = 1.0 / 30.0
+        self._targets: Dict[str, float] = {}
+        self._joint_prims: Dict[str, object] = {}
+
+        # Discover all revolute joints under excavator root.
+        for prim in stage.Traverse():
+            path = prim.GetPath().pathString
+            if not path.startswith(excavator_prim + "/"):
+                continue
+            if "RevoluteJoint" not in prim.GetTypeName():
+                continue
+            name = prim.GetName()
+            self._joint_prims[name] = prim
+            attr = prim.GetAttribute("drive:angular:physics:targetPosition")
+            # PhysX angular drive target is in degrees; keep ROS interface in radians.
+            deg = float(attr.Get() or 0.0) if attr else 0.0
+            self._targets[name] = math.radians(deg)
+
+        try:
+            import rclpy  # type: ignore
+            from rclpy.node import Node  # type: ignore
+            from sensor_msgs.msg import JointState  # type: ignore
+
+            self._rclpy = rclpy
+            self._joint_msg_type = JointState
+            if not rclpy.ok():
+                rclpy.init(args=None)
+                self._inited_here = True
+            self._node = Node("excavator_joint_bridge")
+            self._pub = self._node.create_publisher(JointState, "/excavator/joint_states", 50)
+            self._sub = self._node.create_subscription(JointState, "/excavator/cmd_joint", self._on_cmd_joint, 50)
+            print(
+                f"[sim] ROS joint bridge ready: sub=/excavator/cmd_joint pub=/excavator/joint_states joints={list(self._joint_prims.keys())}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"[sim] ROS joint bridge disabled (rclpy unavailable): {exc}", flush=True)
+
+    def _on_cmd_joint(self, msg):
+        names = list(msg.name)
+        positions = list(msg.position)
+        if not names or not positions:
+            return
+        for i, name in enumerate(names):
+            if i >= len(positions):
+                break
+            if name in self._joint_prims:
+                # ROS command uses radians.
+                self._targets[name] = float(positions[i])
+
+    def _apply_targets(self):
+        for name, target in self._targets.items():
+            prim = self._joint_prims.get(name)
+            if prim is None:
+                continue
+            attr = prim.GetAttribute("drive:angular:physics:targetPosition")
+            if not attr:
+                attr = prim.CreateAttribute("drive:angular:physics:targetPosition", self._Sdf.ValueTypeNames.Float)
+            # PhysX angular drive target uses degrees.
+            attr.Set(float(math.degrees(target)))
+
+    def _publish_joint_states(self, sim_time_s: float):
+        if self._node is None:
+            return
+        msg = self._joint_msg_type()
+        # Publish in stable order for consumers.
+        names = sorted(self._joint_prims.keys())
+        msg.name = names
+        msg.position = []
+        msg.velocity = []
+        for name in names:
+            prim = self._joint_prims[name]
+            pos_attr = prim.GetAttribute("state:angular:physics:position")
+            vel_attr = prim.GetAttribute("state:angular:physics:velocity")
+            tgt_attr = prim.GetAttribute("drive:angular:physics:targetPosition")
+            # PhysX state angular position/velocity are degrees(/s); publish radians(/s) to ROS.
+            pos_deg = float(pos_attr.Get()) if pos_attr and pos_attr.Get() is not None else float(tgt_attr.Get() or 0.0)
+            vel_deg = float(vel_attr.Get()) if vel_attr and vel_attr.Get() is not None else 0.0
+            pos = math.radians(pos_deg)
+            vel = math.radians(vel_deg)
+            msg.position.append(pos)
+            msg.velocity.append(vel)
+        try:
+            from rclpy.time import Time  # type: ignore
+
+            msg.header.stamp = Time(seconds=float(sim_time_s)).to_msg()
+        except Exception:
+            msg.header.stamp = self._node.get_clock().now().to_msg()
+        self._pub.publish(msg)
+
+    def tick(self, sim_time_s: float):
+        if self._rclpy is None or self._node is None:
+            return
+        self._rclpy.spin_once(self._node, timeout_sec=0.0)
+        self._apply_targets()
+        if self._last_pub_time < 0.0 or (sim_time_s - self._last_pub_time) >= self._pub_period:
+            self._publish_joint_states(sim_time_s)
+            self._last_pub_time = sim_time_s
+
+    def close(self):
+        if self._node is not None:
+            try:
+                self._node.destroy_node()
+            except Exception:
+                pass
+        if self._rclpy is not None and self._inited_here and self._rclpy.ok():
+            try:
+                self._rclpy.shutdown()
+            except Exception:
+                pass
 
 
 def _import_simulation_app(headless: bool):
@@ -150,34 +276,44 @@ def _add_visual_box(stage, prim_path: str, size=(1.0, 1.0, 1.0), translation=(0.
     cube.CreateDisplayColorAttr([Gf.Vec3f(*color)])
 
 
+def _add_static_collision_box(stage, prim_path: str, size=(1.0, 1.0, 1.0), translation=(0.0, 0.0, 0.5), color=(0.5, 0.3, 0.1)):
+    from pxr import UsdPhysics  # type: ignore
+
+    _add_visual_box(stage, prim_path, size=size, translation=translation, color=color)
+    prim = stage.GetPrimAtPath(prim_path)
+    if prim and prim.IsValid():
+        if not UsdPhysics.CollisionAPI.Get(stage, prim.GetPath()):
+            UsdPhysics.CollisionAPI.Apply(prim)
+
+
 def _add_open_truck_shell(stage, root_path: str, bottom_center_xy: tuple[float, float], cfg: SceneRandomization):
     x, y = bottom_center_xy
     t = cfg.truck_thickness
     lx, ly, h = cfg.truck_len, cfg.truck_wid, cfg.truck_h
     z0 = 0.0  # bottom level
-    _add_visual_box(stage, f"{root_path}/floor", size=(lx, ly, t), translation=(x, y, z0 + t * 0.5), color=(0.2, 0.35, 0.7))
-    _add_visual_box(
+    _add_static_collision_box(stage, f"{root_path}/floor", size=(lx, ly, t), translation=(x, y, z0 + t * 0.5), color=(0.2, 0.35, 0.7))
+    _add_static_collision_box(
         stage,
         f"{root_path}/left_wall",
         size=(lx, t, h),
         translation=(x, y + (ly * 0.5 - t * 0.5), z0 + h * 0.5),
         color=(0.2, 0.35, 0.7),
     )
-    _add_visual_box(
+    _add_static_collision_box(
         stage,
         f"{root_path}/right_wall",
         size=(lx, t, h),
         translation=(x, y - (ly * 0.5 - t * 0.5), z0 + h * 0.5),
         color=(0.2, 0.35, 0.7),
     )
-    _add_visual_box(
+    _add_static_collision_box(
         stage,
         f"{root_path}/back_wall",
         size=(t, ly, h),
         translation=(x - (lx * 0.5 - t * 0.5), y, z0 + h * 0.5),
         color=(0.2, 0.35, 0.7),
     )
-    _add_visual_box(
+    _add_static_collision_box(
         stage,
         f"{root_path}/front_wall",
         size=(t, ly, h),
@@ -364,6 +500,7 @@ def run(headless: bool, scene_usd: str | None, excavator_asset: str | None, seed
     print("[sim] creating SimulationApp", flush=True)
     print(f"[sim] requested asset: {excavator_asset}", flush=True)
     simulation_app = _import_simulation_app(headless=headless)
+    joint_bridge: Optional[_RosJointBridge] = None
     try:
         print("[sim] enabling extensions", flush=True)
         _enable_extensions()
@@ -408,6 +545,7 @@ def run(headless: bool, scene_usd: str | None, excavator_asset: str | None, seed
                             print(f"[sim] warning: failed to move imported prim to /World: {exc}", flush=True)
                     print(f"[sim] URDF imported prim: {excavator_prim}", flush=True)
                     _hold_articulation_pose(stage, excavator_prim)
+                    joint_bridge = _RosJointBridge(stage, excavator_prim)
             else:
                 excavator_loaded = _add_reference(stage, excavator_prim, excavator_asset)
 
@@ -448,6 +586,8 @@ def run(headless: bool, scene_usd: str | None, excavator_asset: str | None, seed
             # In headless mode, is_running() may become false immediately on some Isaac Sim builds.
             # Keep stepping until interrupted by user (Ctrl+C) or external process termination.
             while True:
+                if joint_bridge is not None:
+                    joint_bridge.tick(step_count * cfg.physics_dt)
                 if stone_idx < len(stone_specs) and (step_count % spawn_interval_steps == 0):
                     _spawn_one_stone(stage, "/World/SoilPile", pile_center, stone_idx, stone_specs[stone_idx])
                     stone_idx += 1
@@ -455,6 +595,8 @@ def run(headless: bool, scene_usd: str | None, excavator_asset: str | None, seed
                 step_count += 1
         else:
             while simulation_app.is_running():
+                if joint_bridge is not None:
+                    joint_bridge.tick(step_count * cfg.physics_dt)
                 if stone_idx < len(stone_specs) and (step_count % spawn_interval_steps == 0):
                     _spawn_one_stone(stage, "/World/SoilPile", pile_center, stone_idx, stone_specs[stone_idx])
                     stone_idx += 1
@@ -465,6 +607,8 @@ def run(headless: bool, scene_usd: str | None, excavator_asset: str | None, seed
         print(traceback.format_exc(), flush=True)
         raise
     finally:
+        if joint_bridge is not None:
+            joint_bridge.close()
         print("[sim] closing SimulationApp", flush=True)
         simulation_app.close()
 

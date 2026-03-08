@@ -1,22 +1,22 @@
 # Excavator Pipeline Quickstart
 
-## 1) Load env
+## 1) Load env / start sim launcher
 
 ```bash
-source scripts/env.sh
+source scripts/sim.sh
 ```
 
 ## 2) Run Isaac Sim minimal scene
 
 ```bash
-python -m excavator_sim.run_sim
+scripts/sim.sh
 ```
 
 ## 3) Teleop + record one trajectory
 
 Terminal A:
 ```bash
-python -m excavator_sim.run_sim
+scripts/sim.sh
 ```
 
 Terminal B:
@@ -26,7 +26,7 @@ python -m excavator_sim.ros.record_topics
 
 Terminal C:
 ```bash
-python -m excavator_sim.teleop --mode position
+scripts/teleop.sh
 ```
 
 ## 4) Collect >= 30 trajectories
