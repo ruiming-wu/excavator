@@ -7,12 +7,14 @@ import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 import pygame
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
+from std_msgs.msg import Bool
+from std_msgs.msg import Int32
 
 
 JOINT_ORDER = ["boom_joint", "arm_joint", "bucket_joint", "swing_joint"]
@@ -29,6 +31,9 @@ class TeleopConfig:
     left_y_axis: int
     right_x_axis: int
     right_y_axis: int
+    x_button: int
+    y_button: int
+    zero_goal_tol: float
 
 
 class JoystickTeleopNode(Node):
@@ -36,14 +41,44 @@ class JoystickTeleopNode(Node):
         super().__init__("excavator_joystick_teleop")
         self.cfg = cfg
         self.publisher = self.create_publisher(JointState, "/excavator/cmd_joint", 50)
+        self.reset_publisher = self.create_publisher(Int32, "/excavator/reset", 10)
         self.subscriber = self.create_subscription(JointState, "/excavator/joint_states", self.on_joint_states, 50)
+        self.ready_subscriber = self.create_subscription(Bool, "/excavator/ready", self.on_ready, 10)
 
         self.current_positions: Dict[str, float] = {j: 0.0 for j in JOINT_ORDER}
         self.target_positions: Dict[str, float] = {j: 0.0 for j in JOINT_ORDER}
         self.has_joint_state = False
+        self.ready = False
+        self.zero_goal_blocking = False
 
         self.joint_limits = self._load_joint_limits(cfg.urdf_path)
         self.get_logger().info(f"Loaded joint limits from {cfg.urdf_path}")
+
+    def request_env_reset(self) -> None:
+        msg = Int32()
+        msg.data = 1
+        self.reset_publisher.publish(msg)
+        self.get_logger().info("Published /excavator/reset = 1")
+
+    def reset_joint_targets_to_zero(self) -> None:
+        self._start_zero_goal_blocking()
+        self.get_logger().info("Y pressed: keep sending zero until joints are near zero")
+
+    def _start_zero_goal_blocking(self) -> None:
+        self.target_positions = {j: 0.0 for j in JOINT_ORDER}
+        self.zero_goal_blocking = True
+        self._publish_zero_joint_cmd_once()
+
+    def _publish_zero_joint_cmd_once(self) -> None:
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = JOINT_ORDER
+        msg.position = [0.0 for _ in JOINT_ORDER]
+        self.publisher.publish(msg)
+
+    def _is_joint_state_close_to_zero(self) -> bool:
+        tol = float(self.cfg.zero_goal_tol)
+        return all(abs(float(self.current_positions[j])) <= tol for j in JOINT_ORDER)
 
     def _load_joint_limits(self, urdf_path: Path) -> Dict[str, tuple[float, float]]:
         if not urdf_path.exists():
@@ -78,10 +113,22 @@ class JoystickTeleopNode(Node):
                 self.current_positions[joint] = float(name_to_pos[joint])
                 changed = True
 
-        if changed and not self.has_joint_state:
+        if not changed:
+            return
+
+        if not self.has_joint_state:
             self.target_positions = dict(self.current_positions)
             self.has_joint_state = True
             self.get_logger().info("Received first /excavator/joint_states; teleop enabled")
+
+    def on_ready(self, msg: Bool) -> None:
+        new_state = bool(msg.data)
+        if self.ready != new_state:
+            self.ready = new_state
+            self.get_logger().info(f"Ready state changed: {self.ready}")
+            if not self.ready:
+                # Stop any ongoing forced-zero operation during reset/init.
+                self.zero_goal_blocking = False
 
     @staticmethod
     def _apply_deadzone(v: float, dz: float) -> float:
@@ -92,6 +139,16 @@ class JoystickTeleopNode(Node):
         return max(lo, min(hi, v))
 
     def step(self, left_x: float, left_y: float, right_x: float, right_y: float) -> None:
+        if not self.ready:
+            return
+        if self.zero_goal_blocking:
+            self._publish_zero_joint_cmd_once()
+            if self.has_joint_state and self._is_joint_state_close_to_zero():
+                self.zero_goal_blocking = False
+                self.target_positions = dict(self.current_positions)
+                self.get_logger().info("Zero-goal reached; exit blocking mode")
+            return
+
         if not self.has_joint_state:
             return
 
@@ -135,7 +192,7 @@ def parse_args() -> TeleopConfig:
     parser.add_argument("--urdf", type=str, default=str(_default_urdf_path()))
     parser.add_argument("--scale", type=float, default=0.02, help="Per-step delta: target = current + scale * joystick")
     parser.add_argument("--hz", type=float, default=30.0)
-    parser.add_argument("--deadzone", type=float, default=0.08)
+    parser.add_argument("--deadzone", type=float, default=0.05)
     parser.add_argument("--joystick-index", type=int, default=0)
 
     # Axis defaults for many Xbox mappings in pygame.
@@ -143,6 +200,9 @@ def parse_args() -> TeleopConfig:
     parser.add_argument("--left-y-axis", type=int, default=1)
     parser.add_argument("--right-x-axis", type=int, default=2)
     parser.add_argument("--right-y-axis", type=int, default=3)
+    parser.add_argument("--x-button", type=int, default=3, help="Xbox X button index in pygame")
+    parser.add_argument("--y-button", type=int, default=4, help="Xbox Y button index in pygame")
+    parser.add_argument("--zero-goal-tol", type=float, default=0.05, help="Close-to-zero tolerance in radians")
 
     args = parser.parse_args()
     return TeleopConfig(
@@ -155,6 +215,9 @@ def parse_args() -> TeleopConfig:
         left_y_axis=args.left_y_axis,
         right_x_axis=args.right_x_axis,
         right_y_axis=args.right_y_axis,
+        x_button=args.x_button,
+        y_button=args.y_button,
+        zero_goal_tol=args.zero_goal_tol,
     )
 
 
@@ -178,11 +241,15 @@ def main() -> None:
     print("  left X  -> swing (left larger, right smaller)")
     print("  right Y -> boom (up larger)")
     print("  right X -> bucket (left larger)")
+    print("  X button -> env reset only")
+    print("  Y button -> zero-goal blocking")
     print("Ctrl+C to quit")
 
     rclpy.init()
     node = JoystickTeleopNode(cfg)
     period = 1.0 / cfg.hz
+    prev_x_pressed = False
+    prev_y_pressed = False
 
     try:
         while rclpy.ok():
@@ -191,9 +258,18 @@ def main() -> None:
             ly = float(js.get_axis(cfg.left_y_axis))
             rx = float(js.get_axis(cfg.right_x_axis))
             ry = float(js.get_axis(cfg.right_y_axis))
+            x_pressed = bool(js.get_button(cfg.x_button))
+            y_pressed = bool(js.get_button(cfg.y_button))
 
             rclpy.spin_once(node, timeout_sec=0.0)
-            node.step(lx, ly, rx, ry)
+            if x_pressed and not prev_x_pressed:
+                node.request_env_reset()
+            elif y_pressed and not prev_y_pressed and node.ready:
+                node.reset_joint_targets_to_zero()
+            else:
+                node.step(lx, ly, rx, ry)
+            prev_x_pressed = x_pressed
+            prev_y_pressed = y_pressed
             time.sleep(period)
     finally:
         node.destroy_node()
