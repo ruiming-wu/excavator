@@ -59,12 +59,12 @@
 
   <link name="boom_link">
     <inertial>
-      <origin xyz="1.0 0 0" rpy="0 0 0"/>
+      <origin xyz="1.0 0 0.175" rpy="0 0 0"/>
       <mass value="900.0"/>
       <inertia ixx="90.0" ixy="0.0" ixz="0.0" iyy="120.0" iyz="0.0" izz="120.0"/>
     </inertial>
     <visual>
-      <origin xyz="1.0 0 0" rpy="0 0 0"/>
+      <origin xyz="1.0 0 0.175" rpy="0 0 0"/>
       <geometry>
         <box size="2.0 0.35 0.35"/>
       </geometry>
@@ -75,7 +75,7 @@
   <joint name="boom_joint" type="revolute">
     <parent link="house_link"/>
     <child link="boom_link"/>
-    <origin xyz="0.65 0 0.75" rpy="0 -0.79 0"/>
+    <origin xyz="0.7 -0.4 0.9" rpy="0 -0.79 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-0.79" upper="0.79" effort="7000" velocity="0.7"/>
     <dynamics damping="8.0" friction="3.0"/>
@@ -83,12 +83,12 @@
 
   <link name="arm_link">
     <inertial>
-      <origin xyz="0.8 0 0" rpy="0 0 0"/>
+      <origin xyz="0.8 0 0.14" rpy="0 0 0"/>
       <mass value="600.0"/>
       <inertia ixx="45.0" ixy="0.0" ixz="0.0" iyy="55.0" iyz="0.0" izz="55.0"/>
     </inertial>
     <visual>
-      <origin xyz="0.8 0 0" rpy="0 0 0"/>
+      <origin xyz="0.8 0 0.14" rpy="0 0 0"/>
       <geometry>
         <box size="1.6 0.28 0.28"/>
       </geometry>
@@ -172,7 +172,7 @@
   <joint name="bucket_joint" type="revolute">
     <parent link="arm_link"/>
     <child link="bucket_link"/>
-    <origin xyz="1.6 0 -0.15" rpy="0 -1.57 0"/>
+    <origin xyz="1.6 0 0.0" rpy="0 -1.57 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-1.57" upper="1.57" effort="3500" velocity="1.2"/>
     <dynamics damping="4.0" friction="1.5"/>

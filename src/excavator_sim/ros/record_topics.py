@@ -41,7 +41,7 @@ class Recorder(Node):
         self._counter = 0
         self._last_log_ns = 0
 
-        self.create_subscription(Image, "/excavator/camera_front/rgb", self.on_rgb, 10)
+        self.create_subscription(Image, "/excavator/camera_driver/rgb", self.on_rgb, 10)
         self.create_subscription(PointCloud2, "/excavator/lidar/points", self.on_lidar, 10)
         self.create_subscription(JointState, "/excavator/joint_states", self.on_joint, 50)
         self.create_subscription(JointState, "/excavator/cmd_joint", self.on_cmd, 50)
@@ -170,7 +170,7 @@ class Recorder(Node):
 
         meta = {
             "topics": {
-                "rgb": "/excavator/camera_front/rgb",
+                "rgb": "/excavator/camera_driver/rgb",
                 "lidar": "/excavator/lidar/points",
                 "joint_states": "/excavator/joint_states",
                 "cmd_joint": "/excavator/cmd_joint",

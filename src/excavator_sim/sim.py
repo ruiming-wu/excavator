@@ -4,6 +4,7 @@ import argparse
 import math
 import os
 import random
+import time
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +16,7 @@ from excavator_sim.common import get_paths
 @dataclass
 class SceneRandomization:
     # Stage convention: x forward, y lateral, z up.
-    truck_x_min: float = -2.0
+    truck_x_min: float = 0.0
     truck_x_max: float = 2.0
     truck_y_abs_min: float = 2.0
     truck_y_abs_max: float = 3.0
@@ -27,16 +28,17 @@ class SceneRandomization:
     truck_wid: float = 1.8
     truck_h: float = 0.8
     truck_thickness: float = 0.04
-    stone_count: int = 200
+    stone_count: int = 250
     stone_size_min: float = 0.05
-    stone_size_max: float = 0.10
+    stone_size_max: float = 0.08
     stone_drop_height_min: float = 0.5
     stone_drop_height_max: float = 0.7
+    stone_density: float = 500.0
     stone_spawn_interval_s: float = 1.0 / 30.0
     physics_dt: float = 1.0 / 60.0
     render_every_n_steps: int = 3
-    friction_static: float = 0.6
-    friction_dynamic: float = 0.5
+    friction_static: float = 2.1
+    friction_dynamic: float = 2.0
     friction_restitution: float = 0.02
 
 
@@ -52,22 +54,25 @@ class _RosJointBridge:
     def __init__(self, stage, excavator_prim: str):
         from pxr import Sdf  # type: ignore
 
-        self._stage = stage
-        self._root = excavator_prim
         self._Sdf = Sdf
         self._rclpy = None
         self._node = None
         self._joint_msg_type = None
         self._inited_here = False
-        self._last_pub_time = -1.0
+        self._last_pub_wall_time = -1.0
         self._pub_period = 1.0 / 60.0
-        self._last_ready_pub_time = -1.0
+        self._last_ready_pub_wall_time = -1.0
         self._ready_pub_period = 1.0 / 10.0
         self._reset_requested = False
         self._ready_state = False
         self._targets: Dict[str, float] = {}
         self._initial_targets: Dict[str, float] = {}
         self._joint_prims: Dict[str, object] = {}
+        self._int_msg_type = None
+        self._stones_pub = None
+        self._stones_in_truck_count = 0
+        self._last_stones_pub_wall_time = -1.0
+        self._stones_pub_period = 1.0 / 5.0
 
         # Discover all revolute joints under excavator root.
         for prim in stage.Traverse():
@@ -94,16 +99,18 @@ class _RosJointBridge:
             self._rclpy = rclpy
             self._joint_msg_type = JointState
             self._ready_msg_type = Bool
+            self._int_msg_type = Int32
             if not rclpy.ok():
                 rclpy.init(args=None)
                 self._inited_here = True
             self._node = Node("excavator_joint_bridge")
             self._pub = self._node.create_publisher(JointState, "/excavator/joint_states", 50)
             self._ready_pub = self._node.create_publisher(Bool, "/excavator/ready", 10)
+            self._stones_pub = self._node.create_publisher(Int32, "/excavator/stones_in_truck", 10)
             self._sub = self._node.create_subscription(JointState, "/excavator/cmd_joint", self._on_cmd_joint, 50)
             self._reset_sub = self._node.create_subscription(Int32, "/excavator/reset", self._on_reset, 10)
             print(
-                f"[sim] ROS joint bridge ready: sub=/excavator/cmd_joint,/excavator/reset pub=/excavator/joint_states,/excavator/ready joints={list(self._joint_prims.keys())}",
+                f"[sim] ROS joint bridge ready: sub=/excavator/cmd_joint,/excavator/reset pub=/excavator/joint_states,/excavator/ready,/excavator/stones_in_truck joints={list(self._joint_prims.keys())}",
                 flush=True,
             )
             self._publish_ready()
@@ -140,7 +147,7 @@ class _RosJointBridge:
         self._apply_targets()
         # Reset publish time base so joint_states resumes immediately after
         # simulation step counter is reset to 0.
-        self._last_pub_time = -1.0
+        self._last_pub_wall_time = -1.0
 
     def _apply_targets(self):
         for name, target in self._targets.items():
@@ -197,17 +204,31 @@ class _RosJointBridge:
             if self._node is not None:
                 self._node.get_logger().info(f"/excavator/ready -> {self._ready_state}")
 
+    def set_stones_in_truck_count(self, count: int):
+        self._stones_in_truck_count = max(0, int(count))
+
+    def _publish_stones_in_truck(self):
+        if self._node is None or self._int_msg_type is None or self._stones_pub is None:
+            return
+        msg = self._int_msg_type()
+        msg.data = int(self._stones_in_truck_count)
+        self._stones_pub.publish(msg)
+
     def tick(self, sim_time_s: float):
         if self._rclpy is None or self._node is None:
             return
+        now = time.monotonic()
         self._rclpy.spin_once(self._node, timeout_sec=0.0)
         self._apply_targets()
-        if self._last_ready_pub_time < 0.0 or (sim_time_s - self._last_ready_pub_time) >= self._ready_pub_period:
+        if self._last_ready_pub_wall_time < 0.0 or (now - self._last_ready_pub_wall_time) >= self._ready_pub_period:
             self._publish_ready()
-            self._last_ready_pub_time = sim_time_s
-        if self._last_pub_time < 0.0 or (sim_time_s - self._last_pub_time) >= self._pub_period:
+            self._last_ready_pub_wall_time = now
+        if self._last_pub_wall_time < 0.0 or (now - self._last_pub_wall_time) >= self._pub_period:
             self._publish_joint_states(sim_time_s)
-            self._last_pub_time = sim_time_s
+            self._last_pub_wall_time = now
+        if self._last_stones_pub_wall_time < 0.0 or (now - self._last_stones_pub_wall_time) >= self._stones_pub_period:
+            self._publish_stones_in_truck()
+            self._last_stones_pub_wall_time = now
 
     def close(self):
         if self._node is not None:
@@ -274,7 +295,14 @@ def _import_urdf_asset(urdf_path: str) -> str | None:
     return imported_path
 
 
-def _add_dynamic_box(stage, prim_path: str, size=(1.0, 1.0, 1.0), translation=(0.0, 0.0, 0.5), color=(0.5, 0.3, 0.1)):
+def _add_dynamic_box(
+    stage,
+    prim_path: str,
+    size=(1.0, 1.0, 1.0),
+    translation=(0.0, 0.0, 0.5),
+    color=(0.5, 0.3, 0.1),
+    density: float = 100.0,
+):
     from pxr import Gf, UsdGeom, UsdPhysics  # type: ignore
     from omni.physx.scripts import physicsUtils  # type: ignore
 
@@ -286,7 +314,7 @@ def _add_dynamic_box(stage, prim_path: str, size=(1.0, 1.0, 1.0), translation=(0
         position=Gf.Vec3f(*translation),
         orientation=Gf.Quatf(1.0),
         color=Gf.Vec3f(*color),
-        density=100.0,
+        density=float(density),
     )
     # Set display color after creation.
     cube = UsdGeom.Cube.Get(stage, prim_path)
@@ -299,8 +327,7 @@ def _add_dynamic_box(stage, prim_path: str, size=(1.0, 1.0, 1.0), translation=(0
         if not mass_api:
             mass_api = UsdPhysics.MassAPI.Apply(prim)
         sx, sy, sz = float(size[0]), float(size[1]), float(size[2])
-        density = 100.0
-        mass = max(0.01, density * sx * sy * sz)
+        mass = max(0.01, float(density) * sx * sy * sz)
         ixx = max(1e-6, (1.0 / 12.0) * mass * (sy * sy + sz * sz))
         iyy = max(1e-6, (1.0 / 12.0) * mass * (sx * sx + sz * sz))
         izz = max(1e-6, (1.0 / 12.0) * mass * (sx * sx + sy * sy))
@@ -413,7 +440,7 @@ def _build_stone_specs(rng: random.Random, cfg: SceneRandomization) -> list[Ston
         specs.append(
             StoneSpec(
                 sx=size,
-                sy=size,
+                sy=size * rng.uniform(0.7, 1.3),
                 sz=size * rng.uniform(0.7, 1.3),
                 z=rng.uniform(cfg.stone_drop_height_min, cfg.stone_drop_height_max),
             )
@@ -436,6 +463,7 @@ def _spawn_one_stone(
     center_xy: tuple[float, float],
     index: int,
     spec: StoneSpec,
+    stone_density: float,
     physics_material_path: str | None = None,
 ):
     from pxr import Gf, Sdf, UsdPhysics  # type: ignore
@@ -448,6 +476,7 @@ def _spawn_one_stone(
         size=(spec.sx, spec.sy, spec.sz),
         translation=(cx, cy, spec.z),
         color=(0.42, 0.28, 0.16),
+        density=stone_density,
     )
     prim = stage.GetPrimAtPath(prim_path)
     if prim.IsValid():
@@ -461,46 +490,6 @@ def _spawn_one_stone(
         vel_attr.Set(Gf.Vec3f(0.0, 0.0, -0.2))
         if physics_material_path:
             _bind_physics_material(stage, prim_path, physics_material_path)
-
-
-def _setup_lighting(stage):
-    # Configure viewport light rig preference. Actual rig application is retried
-    # after sim starts because early startup often has no ready viewport/context.
-    import carb  # type: ignore
-    from pxr import UsdUtils  # type: ignore
-
-    settings = carb.settings.get_settings()
-    settings.set("/persistent/exts/omni.kit.viewport.menubar.lighting/autoLightRig/enabled", True)
-    settings.set("/exts/omni.kit.viewport.menubar.lighting/defaultRig", "Grey Studio")
-    settings.set("/rtx/useViewLightingMode", False)
-
-    stage_id = UsdUtils.StageCache.Get().GetId(stage).ToLongInt() if stage else 0
-    lighting_mode_key = f"/exts/omni.kit.viewport.menubar.lighting/lightingMode/{stage_id}"
-    settings.set(lighting_mode_key, "Grey Studio")
-
-    return "Grey Studio"
-
-
-def _apply_viewport_light_rig(stage, rig_name: str) -> bool:
-    import omni.kit.viewport.utility as vp_utility  # type: ignore
-    import omni.usd  # type: ignore
-
-    try:
-        # Apply via lighting extension action with an active viewport; without
-        # viewport context this frequently returns False even if settings are set.
-        from omni.kit.viewport.menubar.lighting.actions import _set_lighting_mode  # type: ignore
-
-        usd_context = omni.usd.get_context()
-        viewport = vp_utility.get_active_viewport()
-
-        ok, _, _ = _set_lighting_mode(rig_name, usd_context=usd_context, viewport=viewport)
-        return bool(ok)
-    except Exception as exc:
-        # Avoid flooding logs when called every frame.
-        if not getattr(_apply_viewport_light_rig, "_printed_error", False):
-            print(f"[sim] apply lighting rig failed: {exc}", flush=True)
-            _apply_viewport_light_rig._printed_error = True
-        return False
 
 
 def _ensure_fallback_stage_light(stage):
@@ -538,9 +527,9 @@ def _hold_articulation_pose(stage, root_prim_path: str):
         if not drive:
             drive = UsdPhysics.DriveAPI.Apply(prim, "angular")
         drive.CreateTypeAttr("force")
-        drive.CreateStiffnessAttr(120000.0)
-        drive.CreateDampingAttr(18000.0)
-        drive.CreateMaxForceAttr(1.0e9)
+        drive.CreateStiffnessAttr(30000.0)
+        drive.CreateDampingAttr(6000.0)
+        drive.CreateMaxForceAttr(2.0e6)
 
         # Keep current authored/default pose unless user sends command.
         target_attr = prim.GetAttribute("drive:angular:physics:targetPosition")
@@ -557,51 +546,74 @@ def _setup_physics_world():
     return World(stage_units_in_meters=1.0)
 
 
-def _attach_sensors(world, excavator_prim: str):
+def _attach_sensors(excavator_prim: str):
     from isaacsim.sensors.camera import Camera  # type: ignore
     from isaacsim.sensors.rtx import LidarRtx  # type: ignore
     import omni.usd  # type: ignore
     from pxr import UsdGeom  # type: ignore
     
     stage = omni.usd.get_context().get_stage()
-    mount_prim = excavator_prim
+    driver_mount_prim = excavator_prim
+    bucket_mount_prim = excavator_prim
     if stage:
-        # Mount cameras on house_link so they move with the excavator house.
+        # Mount driver camera on house_link and bucket camera on arm_link when available.
         for prim in stage.Traverse():
             p = prim.GetPath().pathString
             if not p.startswith(excavator_prim + "/"):
                 continue
             if prim.GetName() == "house_link":
-                mount_prim = p
-                break
+                driver_mount_prim = p
+            elif prim.GetName() == "arm_link":
+                bucket_mount_prim = p
 
-    camera_left = Camera(
-        prim_path=f"{mount_prim}/camera_front_left",
-        # Left-front upper corner on house (x forward, y left, z up)
-        position=(0.7, 0.55, 1.35),
+    camera_driver = Camera(
+        prim_path=f"{driver_mount_prim}/camera_driver",
+        # Driver camera: center-forward viewpoint on upper body.
+        position=(0.75, 0.0, 1.35),
         frequency=20,
-        resolution=(1280, 720),
+        resolution=(640, 360),
         orientation=(1.0, 0.0, 0.0, 0.0),
     )
-    camera_right = Camera(
-        prim_path=f"{mount_prim}/camera_front_right",
-        # Right-front upper corner on house
-        position=(0.7, -0.55, 1.35),
+    camera_bucket = Camera(
+        prim_path=f"{bucket_mount_prim}/camera_bucket",
+        # Bucket camera: mounted on arm_link looking toward bucket area.
+        position=(3.7, -0.4, 2.3),
         frequency=20,
-        resolution=(1280, 720),
-        orientation=(1.0, 0.0, 0.0, 0.0),
+        resolution=(640, 360),
+        orientation=(0.0, 0.382683, 0.0, -0.923880),
     )
     lidar = LidarRtx(
         prim_path=f"{excavator_prim}/lidar",
-        position=(1.5, 0.0, 2.2),
-        orientation=(1.0, 0.0, 0.0, 0.0),
+        position=(0.75, 0.0, 2.0),
+        # Face down: rotate +90 deg around Y (w, x, y, z).
+        orientation=(0.7071, 0.0, 0.7071, 0.0),
     )
-    camera_left.initialize()
-    camera_right.initialize()
+    camera_driver.initialize()
+    camera_bucket.initialize()
     lidar.initialize()
+    lidar_prim_path = ""
+    if stage:
+        # Prefer lidar prim under excavator; fall back to any lidar-like prim.
+        under_excavator: list[str] = []
+        fallback_any: list[str] = []
+        for p in stage.Traverse():
+            path = p.GetPath().pathString
+            name = p.GetName().lower()
+            type_name = p.GetTypeName().lower()
+            if "lidar" not in name and "lidar" not in type_name:
+                continue
+            if path.startswith(excavator_prim + "/"):
+                under_excavator.append(path)
+            else:
+                fallback_any.append(path)
+        if under_excavator:
+            lidar_prim_path = sorted(under_excavator)[0]
+        elif fallback_any:
+            lidar_prim_path = sorted(fallback_any)[0]
+        print(f"[sim] resolved lidar prim: {lidar_prim_path or '(none)'}", flush=True)
     # Keep aperture ratio consistent with image ratio to silence camera warnings.
     if stage:
-        for cam_path in (f"{mount_prim}/camera_front_left", f"{mount_prim}/camera_front_right"):
+        for cam_path in (f"{driver_mount_prim}/camera_driver", f"{bucket_mount_prim}/camera_bucket"):
             cam_prim = stage.GetPrimAtPath(cam_path)
             if cam_prim and cam_prim.IsValid():
                 usd_cam = UsdGeom.Camera(cam_prim)
@@ -609,29 +621,35 @@ def _attach_sensors(world, excavator_prim: str):
                     # Set focal length to 8mm as requested.
                     usd_cam.GetFocalLengthAttr().Set(8.0)
                     horizontal = float(usd_cam.GetHorizontalApertureAttr().Get() or 2.0955)
-                    vertical = horizontal * 720.0 / 1280.0
+                    vertical = horizontal * 360.0 / 640.0
                     usd_cam.GetVerticalApertureAttr().Set(vertical)
-        if mount_prim != excavator_prim:
-            print(f"[sim] camera mount prim: {mount_prim}")
+        if driver_mount_prim != excavator_prim:
+            print(f"[sim] driver camera mount prim: {driver_mount_prim}")
         else:
-            print(f"[sim] camera mount prim not found, fallback to: {excavator_prim}")
+            print(f"[sim] driver camera mount prim not found, fallback to: {excavator_prim}")
+        if bucket_mount_prim != excavator_prim:
+            print(f"[sim] bucket camera mount prim: {bucket_mount_prim}")
+        else:
+            print(f"[sim] bucket camera mount prim not found, fallback to: {excavator_prim}")
 
     print("[sim] sensor topics (via ROS2 bridge graph):")
-    print("[sim]  /excavator/camera_front_left/rgb -> sensor_msgs/Image")
-    print("[sim]  /excavator/camera_front_right/rgb -> sensor_msgs/Image")
+    print("[sim]  /excavator/camera_driver/rgb -> sensor_msgs/Image")
+    print("[sim]  /excavator/camera_bucket/rgb -> sensor_msgs/Image")
     print("[sim]  /excavator/lidar/points -> sensor_msgs/PointCloud2")
     print("[sim]  /excavator/joint_states -> sensor_msgs/JointState")
     print("[sim]  /excavator/cmd_joint <- sensor_msgs/JointState")
     print("[sim]  /excavator/reset <- std_msgs/Int32 (1 triggers reset)")
     print("[sim]  /excavator/ready -> std_msgs/Bool")
+    print("[sim]  /excavator/stones_in_truck -> std_msgs/Int32")
 
     return {
-        "mount_prim": mount_prim,
-        "camera_left_prim": f"{mount_prim}/camera_front_left",
-        "camera_right_prim": f"{mount_prim}/camera_front_right",
-        "lidar_prim": f"{excavator_prim}/lidar",
-        "width": 1280,
-        "height": 720,
+        "driver_mount_prim": driver_mount_prim,
+        "bucket_mount_prim": bucket_mount_prim,
+        "camera_driver_prim": f"{driver_mount_prim}/camera_driver",
+        "camera_bucket_prim": f"{bucket_mount_prim}/camera_bucket",
+        "lidar_prim": lidar_prim_path,
+        "width": 640,
+        "height": 360,
     }
 
 
@@ -639,61 +657,102 @@ def _setup_ros2_bridge_graph(excavator_prim: str, sensor_paths: dict):
     try:
         from pxr import Sdf  # type: ignore
         import omni.graph.core as og  # type: ignore
+        import omni.usd  # type: ignore
 
         graph_path = "/World/ROS2BridgeGraph"
-        camera_left_prim = str(sensor_paths.get("camera_left_prim"))
-        camera_right_prim = str(sensor_paths.get("camera_right_prim"))
-        width = int(sensor_paths.get("width", 1280))
-        height = int(sensor_paths.get("height", 720))
+        camera_driver_prim = str(sensor_paths.get("camera_driver_prim"))
+        camera_bucket_prim = str(sensor_paths.get("camera_bucket_prim"))
+        lidar_prim = str(sensor_paths.get("lidar_prim", ""))
+        stage = omni.usd.get_context().get_stage()
+        lidar_enabled = False
+        if stage and lidar_prim:
+            lidar_candidate = stage.GetPrimAtPath(lidar_prim)
+            lidar_enabled = bool(lidar_candidate and lidar_candidate.IsValid())
+        if lidar_prim and not lidar_enabled:
+            print(f"[sim] lidar prim invalid, skip lidar ROS bridge: {lidar_prim}", flush=True)
+        width = int(sensor_paths.get("width", 640))
+        height = int(sensor_paths.get("height", 360))
+
+        create_nodes = [
+            ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
+            ("ReadSimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
+            ("Context", "isaacsim.ros2.bridge.ROS2Context"),
+            ("Clock", "isaacsim.ros2.bridge.ROS2PublishClock"),
+            ("CreateRPDriver", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
+            ("CreateRPBucket", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
+            ("CameraDriver", "isaacsim.ros2.bridge.ROS2CameraHelper"),
+            ("CameraBucket", "isaacsim.ros2.bridge.ROS2CameraHelper"),
+        ]
+        connect_edges = [
+            ("OnPlaybackTick.outputs:tick", "Clock.inputs:execIn"),
+            ("OnPlaybackTick.outputs:tick", "CreateRPDriver.inputs:execIn"),
+            ("OnPlaybackTick.outputs:tick", "CreateRPBucket.inputs:execIn"),
+            ("Context.outputs:context", "Clock.inputs:context"),
+            ("Context.outputs:context", "CameraDriver.inputs:context"),
+            ("Context.outputs:context", "CameraBucket.inputs:context"),
+            ("ReadSimTime.outputs:simulationTime", "Clock.inputs:timeStamp"),
+            ("CreateRPDriver.outputs:execOut", "CameraDriver.inputs:execIn"),
+            ("CreateRPBucket.outputs:execOut", "CameraBucket.inputs:execIn"),
+            ("CreateRPDriver.outputs:renderProductPath", "CameraDriver.inputs:renderProductPath"),
+            ("CreateRPBucket.outputs:renderProductPath", "CameraBucket.inputs:renderProductPath"),
+        ]
+        set_values = [
+            ("Clock.inputs:topicName", "/clock"),
+            ("ReadSimTime.inputs:resetOnStop", False),
+            ("CreateRPDriver.inputs:width", width),
+            ("CreateRPDriver.inputs:height", height),
+            ("CreateRPBucket.inputs:width", width),
+            ("CreateRPBucket.inputs:height", height),
+            ("CameraDriver.inputs:topicName", "/excavator/camera_driver/rgb"),
+            ("CameraDriver.inputs:frameId", "excavator_camera_driver"),
+            ("CameraDriver.inputs:type", "rgb"),
+            ("CameraDriver.inputs:resetSimulationTimeOnStop", True),
+            ("CameraDriver.inputs:frameSkipCount", 2),
+            ("CameraBucket.inputs:topicName", "/excavator/camera_bucket/rgb"),
+            ("CameraBucket.inputs:frameId", "excavator_camera_bucket"),
+            ("CameraBucket.inputs:type", "rgb"),
+            ("CameraBucket.inputs:resetSimulationTimeOnStop", True),
+            ("CameraBucket.inputs:frameSkipCount", 2),
+        ]
+        if lidar_enabled:
+            create_nodes.extend(
+                [
+                    ("CreateRPLidar", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
+                    ("Lidar", "isaacsim.ros2.bridge.ROS2RtxLidarHelper"),
+                ]
+            )
+            connect_edges.extend(
+                [
+                    ("OnPlaybackTick.outputs:tick", "CreateRPLidar.inputs:execIn"),
+                    ("Context.outputs:context", "Lidar.inputs:context"),
+                    ("CreateRPLidar.outputs:execOut", "Lidar.inputs:execIn"),
+                    ("CreateRPLidar.outputs:renderProductPath", "Lidar.inputs:renderProductPath"),
+                ]
+            )
+            set_values.extend(
+                [
+                    ("CreateRPLidar.inputs:width", 1),
+                    ("CreateRPLidar.inputs:height", 1),
+                    ("Lidar.inputs:topicName", "/excavator/lidar/points"),
+                    ("Lidar.inputs:frameId", "excavator_lidar"),
+                    ("Lidar.inputs:type", "point_cloud"),
+                    ("Lidar.inputs:resetSimulationTimeOnStop", True),
+                    ("Lidar.inputs:frameSkipCount", 2),
+                ]
+            )
 
         og.Controller.edit(
             {"graph_path": graph_path, "evaluator_name": "execution"},
             {
-                og.Controller.Keys.CREATE_NODES: [
-                    ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
-                    ("ReadSimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
-                    ("Context", "isaacsim.ros2.bridge.ROS2Context"),
-                    ("Clock", "isaacsim.ros2.bridge.ROS2PublishClock"),
-                    ("CreateRPLeft", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
-                    ("CreateRPRight", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
-                    ("CameraLeft", "isaacsim.ros2.bridge.ROS2CameraHelper"),
-                    ("CameraRight", "isaacsim.ros2.bridge.ROS2CameraHelper"),
-                ],
-                og.Controller.Keys.CONNECT: [
-                    ("OnPlaybackTick.outputs:tick", "Clock.inputs:execIn"),
-                    ("OnPlaybackTick.outputs:tick", "CreateRPLeft.inputs:execIn"),
-                    ("OnPlaybackTick.outputs:tick", "CreateRPRight.inputs:execIn"),
-                    ("Context.outputs:context", "Clock.inputs:context"),
-                    ("Context.outputs:context", "CameraLeft.inputs:context"),
-                    ("Context.outputs:context", "CameraRight.inputs:context"),
-                    ("ReadSimTime.outputs:simulationTime", "Clock.inputs:timeStamp"),
-                    ("CreateRPLeft.outputs:execOut", "CameraLeft.inputs:execIn"),
-                    ("CreateRPRight.outputs:execOut", "CameraRight.inputs:execIn"),
-                    ("CreateRPLeft.outputs:renderProductPath", "CameraLeft.inputs:renderProductPath"),
-                    ("CreateRPRight.outputs:renderProductPath", "CameraRight.inputs:renderProductPath"),
-                ],
-                og.Controller.Keys.SET_VALUES: [
-                    ("Clock.inputs:topicName", "/clock"),
-                    ("ReadSimTime.inputs:resetOnStop", False),
-                    ("CreateRPLeft.inputs:width", width),
-                    ("CreateRPLeft.inputs:height", height),
-                    ("CreateRPRight.inputs:width", width),
-                    ("CreateRPRight.inputs:height", height),
-                    ("CameraLeft.inputs:topicName", "/excavator/camera_front_left/rgb"),
-                    ("CameraLeft.inputs:frameId", "excavator_camera_front_left"),
-                    ("CameraLeft.inputs:type", "rgb"),
-                    ("CameraLeft.inputs:resetSimulationTimeOnStop", True),
-                    ("CameraLeft.inputs:frameSkipCount", 0),
-                    ("CameraRight.inputs:topicName", "/excavator/camera_front_right/rgb"),
-                    ("CameraRight.inputs:frameId", "excavator_camera_front_right"),
-                    ("CameraRight.inputs:type", "rgb"),
-                    ("CameraRight.inputs:resetSimulationTimeOnStop", True),
-                    ("CameraRight.inputs:frameSkipCount", 0),
-                ],
+                og.Controller.Keys.CREATE_NODES: create_nodes,
+                og.Controller.Keys.CONNECT: connect_edges,
+                og.Controller.Keys.SET_VALUES: set_values,
             },
         )
-        og.Controller.attribute(f"{graph_path}/CreateRPLeft.inputs:cameraPrim").set([Sdf.Path(camera_left_prim)])
-        og.Controller.attribute(f"{graph_path}/CreateRPRight.inputs:cameraPrim").set([Sdf.Path(camera_right_prim)])
+        og.Controller.attribute(f"{graph_path}/CreateRPDriver.inputs:cameraPrim").set([Sdf.Path(camera_driver_prim)])
+        og.Controller.attribute(f"{graph_path}/CreateRPBucket.inputs:cameraPrim").set([Sdf.Path(camera_bucket_prim)])
+        if lidar_enabled:
+            og.Controller.attribute(f"{graph_path}/CreateRPLidar.inputs:cameraPrim").set([Sdf.Path(lidar_prim)])
         print(f"[sim] ROS2 bridge graph created at {graph_path}")
     except Exception as exc:
         print(f"[sim] ROS2 graph auto-setup skipped: {exc}")
@@ -725,6 +784,42 @@ def _build_randomized_environment(
     _add_open_truck_shell(stage, "/World/TruckOrBin", truck_bottom_center, cfg, physics_material_path=physics_material_path)
     pile_center, stone_specs = _setup_stone_pile_root(stage, "/World/SoilPile", rng, cfg)
     return truck_bottom_center, pile_center, stone_specs
+
+
+def _count_stones_in_truck(
+    stage,
+    spawned_stones: int,
+    truck_bottom_center: tuple[float, float],
+    cfg: SceneRandomization,
+) -> int:
+    from pxr import UsdGeom  # type: ignore
+
+    if spawned_stones <= 0:
+        return 0
+
+    cx, cy = truck_bottom_center
+    half_x = cfg.truck_len * 0.5 - cfg.truck_thickness
+    half_y = cfg.truck_wid * 0.5 - cfg.truck_thickness
+    floor_z = cfg.truck_thickness
+    top_z = cfg.truck_h
+    inside = 0
+
+    for i in range(int(spawned_stones)):
+        prim_path = f"/World/SoilPile/stone_{i:03d}"
+        prim = stage.GetPrimAtPath(prim_path)
+        if not prim or not prim.IsValid():
+            continue
+
+        xformable = UsdGeom.Xformable(prim)
+        world_m = xformable.ComputeLocalToWorldTransform(0)
+        pos = world_m.ExtractTranslation()
+        x = float(pos[0])
+        y = float(pos[1])
+        z = float(pos[2])
+
+        if (cx - half_x) <= x <= (cx + half_x) and (cy - half_y) <= y <= (cy + half_y) and floor_z <= z <= top_z:
+            inside += 1
+    return inside
 
 
 def run(headless: bool, excavator_asset: str | None, seed: int | None):
@@ -781,13 +876,13 @@ def run(headless: bool, excavator_asset: str | None, seed: int | None):
             stage, rng, cfg, physics_material_path=high_friction_material
         )
 
-        sensor_paths = _attach_sensors(world, excavator_prim)
+        sensor_paths = _attach_sensors(excavator_prim)
         _setup_ros2_bridge_graph(excavator_prim, sensor_paths)
 
         world.reset()
         world.play()
         if joint_bridge is not None:
-            joint_bridge.set_ready(True)
+            joint_bridge.set_ready(False)
         print(f"[sim] randomized truck bottom-center (x, y): {truck_bottom_center}", flush=True)
         print(
             f"[sim] pile bottom range x=[{cfg.pile_x_min}, {cfg.pile_x_max}] y=[{cfg.pile_y_min}, {cfg.pile_y_max}]",
@@ -807,6 +902,8 @@ def run(headless: bool, excavator_asset: str | None, seed: int | None):
         render_every_n_steps = max(1, int(cfg.render_every_n_steps))
         step_count = 0
         stone_idx = 0
+        last_stones_count_update_wall_time = -1.0
+        stones_count_update_period = 1.0 / 5.0
         print(
             f"[sim] timing: physics={1.0/cfg.physics_dt:.1f}Hz, render={1.0/(cfg.physics_dt*render_every_n_steps):.1f}Hz, joint_states={1.0/joint_bridge._pub_period if joint_bridge else 0:.1f}Hz",
             flush=True,
@@ -824,11 +921,12 @@ def run(headless: bool, excavator_asset: str | None, seed: int | None):
                             stage, rng, cfg, physics_material_path=high_friction_material
                         )
                         stone_idx = 0
+                        joint_bridge.set_stones_in_truck_count(0)
+                        last_stones_count_update_wall_time = -1.0
                         step_count = 0
                         world.reset()
                         joint_bridge.reset_targets_to_initial()
                         world.play()
-                        joint_bridge.set_ready(True)
                         print(f"[sim] reset env: truck (x, y)=({truck_bottom_center[0]}, {truck_bottom_center[1]})", flush=True)
                         print(f"[sim] reset env: pile drop (x, y)=({pile_center[0]}, {pile_center[1]})", flush=True)
                         print("[sim] reset env: joint_states publish timer reset", flush=True)
@@ -839,12 +937,24 @@ def run(headless: bool, excavator_asset: str | None, seed: int | None):
                         pile_center,
                         stone_idx,
                         stone_specs[stone_idx],
+                        stone_density=cfg.stone_density,
                         physics_material_path=high_friction_material,
                     )
                     stone_idx += 1
+                    if stone_idx >= len(stone_specs) and joint_bridge is not None:
+                        joint_bridge.set_ready(True)
                 render_this_step = (step_count % render_every_n_steps) == 0
                 world.step(render=render_this_step)
                 step_count += 1
+                if joint_bridge is not None:
+                    now = time.monotonic()
+                    if (
+                        last_stones_count_update_wall_time < 0.0
+                        or (now - last_stones_count_update_wall_time) >= stones_count_update_period
+                    ):
+                        stones_in_truck = _count_stones_in_truck(stage, stone_idx, truck_bottom_center, cfg)
+                        joint_bridge.set_stones_in_truck_count(stones_in_truck)
+                        last_stones_count_update_wall_time = now
         else:
             while simulation_app.is_running():
                 if joint_bridge is not None:
@@ -855,11 +965,12 @@ def run(headless: bool, excavator_asset: str | None, seed: int | None):
                             stage, rng, cfg, physics_material_path=high_friction_material
                         )
                         stone_idx = 0
+                        joint_bridge.set_stones_in_truck_count(0)
+                        last_stones_count_update_wall_time = -1.0
                         step_count = 0
                         world.reset()
                         joint_bridge.reset_targets_to_initial()
                         world.play()
-                        joint_bridge.set_ready(True)
                         print(f"[sim] reset env: truck (x, y)=({truck_bottom_center[0]}, {truck_bottom_center[1]})", flush=True)
                         print(f"[sim] reset env: pile drop (x, y)=({pile_center[0]}, {pile_center[1]})", flush=True)
                         print("[sim] reset env: joint_states publish timer reset", flush=True)
@@ -870,12 +981,24 @@ def run(headless: bool, excavator_asset: str | None, seed: int | None):
                         pile_center,
                         stone_idx,
                         stone_specs[stone_idx],
+                        stone_density=cfg.stone_density,
                         physics_material_path=high_friction_material,
                     )
                     stone_idx += 1
+                    if stone_idx >= len(stone_specs) and joint_bridge is not None:
+                        joint_bridge.set_ready(True)
                 render_this_step = (step_count % render_every_n_steps) == 0
                 world.step(render=render_this_step)
                 step_count += 1
+                if joint_bridge is not None:
+                    now = time.monotonic()
+                    if (
+                        last_stones_count_update_wall_time < 0.0
+                        or (now - last_stones_count_update_wall_time) >= stones_count_update_period
+                    ):
+                        stones_in_truck = _count_stones_in_truck(stage, stone_idx, truck_bottom_center, cfg)
+                        joint_bridge.set_stones_in_truck_count(stones_in_truck)
+                        last_stones_count_update_wall_time = now
     except Exception:
         print("[sim] fatal error in run():", flush=True)
         print(traceback.format_exc(), flush=True)

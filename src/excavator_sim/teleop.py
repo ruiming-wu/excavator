@@ -26,6 +26,7 @@ class TeleopConfig:
     scale: float
     hz: float
     deadzone: float
+    method: str
     joystick_index: int
     left_x_axis: int
     left_y_axis: int
@@ -193,6 +194,7 @@ def parse_args() -> TeleopConfig:
     parser.add_argument("--scale", type=float, default=0.02, help="Per-step delta: target = current + scale * joystick")
     parser.add_argument("--hz", type=float, default=30.0)
     parser.add_argument("--deadzone", type=float, default=0.05)
+    parser.add_argument("--method", type=str, choices=["joystick", "keyboard"], default="joystick")
     parser.add_argument("--joystick-index", type=int, default=0)
 
     # Axis defaults for many Xbox mappings in pygame.
@@ -210,6 +212,7 @@ def parse_args() -> TeleopConfig:
         scale=args.scale,
         hz=args.hz,
         deadzone=args.deadzone,
+        method=args.method,
         joystick_index=args.joystick_index,
         left_x_axis=args.left_x_axis,
         left_y_axis=args.left_y_axis,
@@ -221,29 +224,74 @@ def parse_args() -> TeleopConfig:
     )
 
 
+def _keyboard_to_controls() -> tuple[float, float, float, float, bool, bool]:
+    keys = pygame.key.get_pressed()
+    lx = 0.0
+    ly = 0.0
+    rx = 0.0
+    ry = 0.0
+
+    if keys[pygame.K_a]:
+        lx -= 1.0
+    if keys[pygame.K_d]:
+        lx += 1.0
+    if keys[pygame.K_w]:
+        ly -= 1.0
+    if keys[pygame.K_s]:
+        ly += 1.0
+
+    if keys[pygame.K_j]:
+        rx -= 1.0
+    if keys[pygame.K_l]:
+        rx += 1.0
+    if keys[pygame.K_i]:
+        ry -= 1.0
+    if keys[pygame.K_k]:
+        ry += 1.0
+
+    x_pressed = bool(keys[pygame.K_3])
+    y_pressed = bool(keys[pygame.K_4])
+    return lx, ly, rx, ry, x_pressed, y_pressed
+
+
 def main() -> None:
     cfg = parse_args()
 
     pygame.init()
-    pygame.joystick.init()
-    if pygame.joystick.get_count() <= cfg.joystick_index:
-        print(
-            f"No joystick at index {cfg.joystick_index}. connected={pygame.joystick.get_count()}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    js = None
 
-    js = pygame.joystick.Joystick(cfg.joystick_index)
-    js.init()
-    print(f"[teleop] joystick: {js.get_name()} (index={cfg.joystick_index})")
-    print("[teleop] controls:")
-    print("  left Y  -> arm (up smaller, down larger)")
-    print("  left X  -> swing (left larger, right smaller)")
-    print("  right Y -> boom (up larger)")
-    print("  right X -> bucket (left larger)")
-    print("  X button -> env reset only")
-    print("  Y button -> zero-goal blocking")
-    print("Ctrl+C to quit")
+    if cfg.method == "joystick":
+        pygame.joystick.init()
+        if pygame.joystick.get_count() <= cfg.joystick_index:
+            print(
+                f"No joystick at index {cfg.joystick_index}. connected={pygame.joystick.get_count()}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        js = pygame.joystick.Joystick(cfg.joystick_index)
+        js.init()
+        print(f"[teleop] input method: joystick")
+        print(f"[teleop] joystick: {js.get_name()} (index={cfg.joystick_index})")
+        print("[teleop] controls:")
+        print("  left Y  -> arm (up smaller, down larger)")
+        print("  left X  -> swing (left larger, right smaller)")
+        print("  right Y -> boom (up larger)")
+        print("  right X -> bucket (left larger)")
+        print("  X button -> env reset only")
+        print("  Y button -> zero-goal blocking")
+        print("Ctrl+C to quit")
+    else:
+        pygame.display.init()
+        pygame.display.set_mode((480, 120))
+        pygame.display.set_caption("Excavator Teleop Keyboard")
+        print("[teleop] input method: keyboard")
+        print("[teleop] controls:")
+        print("  WASD -> left stick (A/D: X, W/S: Y)")
+        print("  IJKL -> right stick (J/L: X, I/K: Y)")
+        print("  3 -> X button (env reset)")
+        print("  4 -> Y button (zero-goal blocking)")
+        print("Keep the pygame window focused. Ctrl+C to quit")
 
     rclpy.init()
     node = JoystickTeleopNode(cfg)
@@ -254,12 +302,15 @@ def main() -> None:
     try:
         while rclpy.ok():
             pygame.event.pump()
-            lx = float(js.get_axis(cfg.left_x_axis))
-            ly = float(js.get_axis(cfg.left_y_axis))
-            rx = float(js.get_axis(cfg.right_x_axis))
-            ry = float(js.get_axis(cfg.right_y_axis))
-            x_pressed = bool(js.get_button(cfg.x_button))
-            y_pressed = bool(js.get_button(cfg.y_button))
+            if cfg.method == "joystick":
+                lx = float(js.get_axis(cfg.left_x_axis))
+                ly = float(js.get_axis(cfg.left_y_axis))
+                rx = float(js.get_axis(cfg.right_x_axis))
+                ry = float(js.get_axis(cfg.right_y_axis))
+                x_pressed = bool(js.get_button(cfg.x_button))
+                y_pressed = bool(js.get_button(cfg.y_button))
+            else:
+                lx, ly, rx, ry, x_pressed, y_pressed = _keyboard_to_controls()
 
             rclpy.spin_once(node, timeout_sec=0.0)
             if x_pressed and not prev_x_pressed:
@@ -275,7 +326,10 @@ def main() -> None:
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
-        js.quit()
+        if js is not None:
+            js.quit()
+        if cfg.method == "keyboard":
+            pygame.display.quit()
         pygame.quit()
 
 
