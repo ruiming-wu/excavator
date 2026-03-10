@@ -267,6 +267,37 @@ def _enable_extensions() -> None:
             raise RuntimeError(f"failed to enable required extension: {ext_name}")
 
 
+def _append_lidar_profile_dir(profile_dir: Path) -> None:
+    """Append a custom lidar profile directory so camera-based lidar configs can be found."""
+    if not profile_dir.exists() or not profile_dir.is_dir():
+        return
+    try:
+        import carb.settings  # type: ignore
+
+        settings = carb.settings.get_settings()
+        key = "/app/sensors/nv/lidar/profileBaseFolder"
+        current = settings.get(key)
+        if current is None:
+            current = settings.get("app.sensors.nv.lidar.profileBaseFolder")
+        if isinstance(current, (list, tuple)):
+            folders = [str(x) for x in current]
+        elif current is None:
+            folders = []
+        else:
+            try:
+                folders = [str(x) for x in list(current)]
+            except Exception:
+                folders = [str(current)]
+        path_str = str(profile_dir)
+        if path_str not in folders:
+            folders.append(path_str)
+            settings.set(key, folders)
+            settings.set("app.sensors.nv.lidar.profileBaseFolder", folders)
+            print(f"[sim] appended lidar profile dir: {path_str}", flush=True)
+    except Exception as exc:
+        print(f"[sim] warning: failed to append lidar profile dir: {exc}", flush=True)
+
+
 def _import_urdf_asset(urdf_path: str) -> str | None:
     import omni.kit.commands  # type: ignore
 
@@ -555,21 +586,23 @@ def _attach_sensors(excavator_prim: str):
     stage = omni.usd.get_context().get_stage()
     driver_mount_prim = excavator_prim
     bucket_mount_prim = excavator_prim
+    lidar_mount_prim = excavator_prim
     if stage:
-        # Mount driver camera on house_link and bucket camera on arm_link when available.
+        # Mount driver camera/lidar on house_link and bucket camera on arm_link when available.
         for prim in stage.Traverse():
             p = prim.GetPath().pathString
             if not p.startswith(excavator_prim + "/"):
                 continue
             if prim.GetName() == "house_link":
                 driver_mount_prim = p
+                lidar_mount_prim = p
             elif prim.GetName() == "arm_link":
                 bucket_mount_prim = p
 
     camera_driver = Camera(
         prim_path=f"{driver_mount_prim}/camera_driver",
         # Driver camera: center-forward viewpoint on upper body.
-        position=(0.75, 0.0, 1.35),
+        position=(0.75, 0.0, 1.3),
         frequency=20,
         resolution=(640, 360),
         orientation=(1.0, 0.0, 0.0, 0.0),
@@ -583,10 +616,13 @@ def _attach_sensors(excavator_prim: str):
         orientation=(0.0, 0.382683, 0.0, -0.923880),
     )
     lidar = LidarRtx(
-        prim_path=f"{excavator_prim}/lidar",
-        position=(0.75, 0.0, 2.0),
-        # Face down: rotate +90 deg around Y (w, x, y, z).
-        orientation=(0.7071, 0.0, 0.7071, 0.0),
+        prim_path=f"{lidar_mount_prim}/lidar",
+        position=(0.75, 0.0, 1.3),
+        # Tilt down: rotate +30 deg around Y (w, x, y, z).
+        orientation=(0.9659258, 0.0, 0.2588190, 0.0),
+        config_file_name="customized_lidar",
+        # Use camera-prim mode so custom profile name is honored.
+        force_camera_prim=True,
     )
     camera_driver.initialize()
     camera_bucket.initialize()
@@ -631,6 +667,12 @@ def _attach_sensors(excavator_prim: str):
             print(f"[sim] bucket camera mount prim: {bucket_mount_prim}")
         else:
             print(f"[sim] bucket camera mount prim not found, fallback to: {excavator_prim}")
+        if lidar_mount_prim != excavator_prim:
+            print(f"[sim] lidar mount prim: {lidar_mount_prim}")
+        else:
+            print(f"[sim] lidar mount prim not found, fallback to: {excavator_prim}")
+
+    print("[sim] lidar config: customized_lidar", flush=True)
 
     print("[sim] sensor topics (via ROS2 bridge graph):")
     print("[sim]  /excavator/camera_driver/rgb -> sensor_msgs/Image")
@@ -778,10 +820,10 @@ def _build_randomized_environment(
     cfg: SceneRandomization,
     physics_material_path: str | None = None,
 ):
-    _remove_prim_if_exists(stage, "/World/TruckOrBin")
+    _remove_prim_if_exists(stage, "/World/Truck")
     _remove_prim_if_exists(stage, "/World/SoilPile")
     truck_bottom_center = _randomized_positions(rng, cfg)
-    _add_open_truck_shell(stage, "/World/TruckOrBin", truck_bottom_center, cfg, physics_material_path=physics_material_path)
+    _add_open_truck_shell(stage, "/World/Truck", truck_bottom_center, cfg, physics_material_path=physics_material_path)
     pile_center, stone_specs = _setup_stone_pile_root(stage, "/World/SoilPile", rng, cfg)
     return truck_bottom_center, pile_center, stone_specs
 
@@ -835,6 +877,7 @@ def run(headless: bool, excavator_asset: str | None, seed: int | None):
     try:
         print("[sim] enabling extensions", flush=True)
         _enable_extensions()
+        _append_lidar_profile_dir(get_paths().assets / "lidar")
         print("[sim] setting up world", flush=True)
         world = _setup_physics_world()
         import omni.usd  # type: ignore
@@ -1016,7 +1059,7 @@ def parse_args():
     parser.add_argument("--headless", action="store_true", help="Run without GUI")
     parser.add_argument(
         "--asset",
-        default=os.environ.get("EXCAVATOR_ASSET_PATH", str(paths.assets / "excavator_4dof" / "excavator_4dof.urdf")),
+        default=os.environ.get("EXCAVATOR_ASSET_PATH", str(paths.assets / "excavator" / "excavator_4dof.urdf")),
         help="Excavator URDF asset path",
     )
     seed_env = os.environ.get("EXCAVATOR_SEED", "").strip()

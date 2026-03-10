@@ -24,7 +24,7 @@ unset AMENT_PREFIX_PATH
 unset COLCON_PREFIX_PATH
 
 cd "${EXCAVATOR_ROOT}"
-URDF_PATH="${EXCAVATOR_ASSET_PATH:-${EXCAVATOR_ROOT}/assets/excavator_4dof/excavator_4dof.urdf}"
+URDF_PATH="${EXCAVATOR_ASSET_PATH:-${EXCAVATOR_ROOT}/assets/excavator/excavator_4dof.urdf}"
 CMD=("${PYTHON_BIN}" -u -m excavator_sim.teleop --urdf "${URDF_PATH}" "$@")
 
 echo "[teleop] starting: ${CMD[*]}"

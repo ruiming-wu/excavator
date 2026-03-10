@@ -185,7 +185,7 @@ def _default_urdf_path() -> Path:
     env_path = os.environ.get("EXCAVATOR_ASSET_PATH", "").strip()
     if env_path and env_path.endswith(".urdf"):
         return Path(env_path)
-    return Path.cwd() / "assets" / "excavator_4dof" / "excavator_4dof.urdf"
+    return Path.cwd() / "assets" / "excavator" / "excavator_4dof.urdf"
 
 
 def parse_args() -> TeleopConfig:
