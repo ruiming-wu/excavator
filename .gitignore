@@ -4,3 +4,7 @@
 # ignore pycache files
 __pycache__/
 *.pyc
+
+# ignore data files
+data/raw/
+data/processed/
