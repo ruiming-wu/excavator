@@ -7,21 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/sim.sh"
 
-PYTHON_BIN="${VIS_PYTHON_BIN:-python}"
-ISAAC_SIM_PKG="$("${PYTHON_BIN}" -c "import os,isaacsim; print(os.path.dirname(isaacsim.__file__))" 2>/dev/null || true)"
-if [ -z "${ISAAC_SIM_PKG}" ]; then
-  echo "[vis] Failed to locate isaacsim package; cannot configure internal rclpy."
-  exit 1
-fi
-
-INTERNAL_RCLPY_DIR="${ISAAC_SIM_PKG}/exts/isaacsim.ros2.bridge/jazzy/rclpy"
-if [ ! -d "${INTERNAL_RCLPY_DIR}" ]; then
-  echo "[vis] Missing internal rclpy path: ${INTERNAL_RCLPY_DIR}"
-  exit 1
-fi
-export PYTHONPATH="${INTERNAL_RCLPY_DIR}:${PYTHONPATH:-}"
-unset AMENT_PREFIX_PATH
-unset COLCON_PREFIX_PATH
+PYTHON_BIN="${VIS_PYTHON_BIN:-${EXCAVATOR_PYTHON_BIN}}"
+_setup_internal_rclpy_env "vis" "${PYTHON_BIN}"
 
 cd "${EXCAVATOR_ROOT}"
 CMD=("${PYTHON_BIN}" -u -m excavator_sim.vis "$@")
@@ -50,4 +37,3 @@ while kill -0 "${VIS_PID}" 2>/dev/null; do
 done
 
 wait "${VIS_PID}" || true
-

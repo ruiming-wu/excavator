@@ -8,7 +8,7 @@
 - 目标是搭建挖掘机最小闭环：`仿真场景 -> ROS2 话题采集 -> 轨迹训练 -> 离线部署评估`。
 - 代码入口：
   - 仿真：`python -m excavator_sim.run_sim`
-  - 采集：`python -m excavator_sim.ros.record_topics`
+  - 采集：`python -m excavator_sim.record`
   - 遥操作：`python -m excavator_sim.teleop --mode position`
   - 训练：`python -m excavator_policy.train`
   - 部署评估：`python -m excavator_policy.deploy_sim --checkpoint ... --eval-run ...`
@@ -36,7 +36,6 @@
 
 ## 验收标准（最小）
 - 能稳定启动仿真并持续运行。
-- 能录到至少一条 `run_XXX`（包含 `meta.json`、`timestamps.parquet`、`action.parquet`）。
+- 能录到至少一条 `run_XXX`（包含 `meta.json`、`action.parquet`、`proprio.parquet` 以及相机/点云原始数据）。
 - 训练能产出 `runs/<run_id>/model.pt`。
 - 部署评估能产出 `deploy_metrics.json`。
-

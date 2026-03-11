@@ -12,11 +12,12 @@ _setup_sim_env() {
   export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 
   export EXCAVATOR_ROOT="$(cd "$(dirname "${script_path}")/.." && pwd)"
+  export EXCAVATOR_PYTHON_BIN="python"
   export PYTHONPATH="${EXCAVATOR_ROOT}/src:${PYTHONPATH:-}"
   export OMNI_KIT_ACCEPT_EULA="${OMNI_KIT_ACCEPT_EULA:-YES}"
 
   local isaac_sim_pkg
-  isaac_sim_pkg="$(python -c "import os,isaacsim; print(os.path.dirname(isaacsim.__file__))" 2>/dev/null || true)"
+  isaac_sim_pkg="$("${EXCAVATOR_PYTHON_BIN}" -c "import os,isaacsim; print(os.path.dirname(isaacsim.__file__))" 2>/dev/null || true)"
   if [ -n "${isaac_sim_pkg}" ] && [ -d "${isaac_sim_pkg}/exts/isaacsim.ros2.bridge/jazzy/lib" ]; then
     export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:${isaac_sim_pkg}/exts/isaacsim.ros2.bridge/jazzy/lib"
   fi
@@ -39,6 +40,28 @@ _setup_sim_env() {
 
   echo "[sim] EXCAVATOR_ROOT=${EXCAVATOR_ROOT}"
   echo "[sim] EXCAVATOR_ASSET_PATH=${EXCAVATOR_ASSET_PATH}"
+  echo "[sim] EXCAVATOR_PYTHON_BIN=${EXCAVATOR_PYTHON_BIN}"
+}
+
+_setup_internal_rclpy_env() {
+  local prefix="$1"
+  local python_bin="${2:-${EXCAVATOR_PYTHON_BIN}}"
+  local isaac_sim_pkg
+  isaac_sim_pkg="$("${python_bin}" -c "import os,isaacsim; print(os.path.dirname(isaacsim.__file__))" 2>/dev/null || true)"
+  if [ -z "${isaac_sim_pkg}" ]; then
+    echo "[${prefix}] Failed to locate isaacsim package; cannot configure internal rclpy."
+    return 1
+  fi
+
+  local internal_rclpy_dir="${isaac_sim_pkg}/exts/isaacsim.ros2.bridge/jazzy/rclpy"
+  if [ ! -d "${internal_rclpy_dir}" ]; then
+    echo "[${prefix}] Missing internal rclpy path: ${internal_rclpy_dir}"
+    return 1
+  fi
+
+  export PYTHONPATH="${internal_rclpy_dir}:${PYTHONPATH:-}"
+  unset AMENT_PREFIX_PATH
+  unset COLCON_PREFIX_PATH
 }
 
 # If sourced: only export env vars.
@@ -50,8 +73,8 @@ fi
 _setup_sim_env
 
 cd "${EXCAVATOR_ROOT}"
-PYTHON_BIN="${SIM_PYTHON_BIN:-python}"
-CMD=("${PYTHON_BIN}" -u -m excavator_sim.sim "$@")
+PYTHON_BIN="${SIM_PYTHON_BIN:-${EXCAVATOR_PYTHON_BIN}}"
+CMD=("${PYTHON_BIN}" -u -m excavator_sim.sim --headless "$@")
 
 echo "[sim] starting: ${CMD[*]}"
 "${CMD[@]}" &

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import random
@@ -65,6 +66,7 @@ class _RosJointBridge:
         self._ready_pub_period = 1.0 / 10.0
         self._reset_requested = False
         self._ready_state = False
+        self._episode_meta_json = ""
         self._targets: Dict[str, float] = {}
         self._initial_targets: Dict[str, float] = {}
         self._joint_prims: Dict[str, object] = {}
@@ -92,25 +94,34 @@ class _RosJointBridge:
         try:
             import rclpy  # type: ignore
             from rclpy.node import Node  # type: ignore
+            from rclpy.qos import DurabilityPolicy  # type: ignore
+            from rclpy.qos import QoSProfile  # type: ignore
+            from rclpy.qos import ReliabilityPolicy  # type: ignore
             from sensor_msgs.msg import JointState  # type: ignore
             from std_msgs.msg import Bool  # type: ignore
             from std_msgs.msg import Int32  # type: ignore
+            from std_msgs.msg import String  # type: ignore
 
             self._rclpy = rclpy
             self._joint_msg_type = JointState
             self._ready_msg_type = Bool
             self._int_msg_type = Int32
+            self._string_msg_type = String
             if not rclpy.ok():
                 rclpy.init(args=None)
                 self._inited_here = True
             self._node = Node("excavator_joint_bridge")
+            latched_qos = QoSProfile(depth=1)
+            latched_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+            latched_qos.reliability = ReliabilityPolicy.RELIABLE
             self._pub = self._node.create_publisher(JointState, "/excavator/joint_states", 50)
-            self._ready_pub = self._node.create_publisher(Bool, "/excavator/ready", 10)
+            self._ready_pub = self._node.create_publisher(Bool, "/excavator/ready", latched_qos)
             self._stones_pub = self._node.create_publisher(Int32, "/excavator/stones_in_truck", 10)
+            self._episode_meta_pub = self._node.create_publisher(String, "/excavator/episode_meta", latched_qos)
             self._sub = self._node.create_subscription(JointState, "/excavator/cmd_joint", self._on_cmd_joint, 50)
             self._reset_sub = self._node.create_subscription(Int32, "/excavator/reset", self._on_reset, 10)
             print(
-                f"[sim] ROS joint bridge ready: sub=/excavator/cmd_joint,/excavator/reset pub=/excavator/joint_states,/excavator/ready,/excavator/stones_in_truck joints={list(self._joint_prims.keys())}",
+                f"[sim] ROS joint bridge ready.",
                 flush=True,
             )
             self._publish_ready()
@@ -207,6 +218,17 @@ class _RosJointBridge:
     def set_stones_in_truck_count(self, count: int):
         self._stones_in_truck_count = max(0, int(count))
 
+    def _publish_episode_meta(self):
+        if self._node is None or not self._episode_meta_json:
+            return
+        msg = self._string_msg_type()
+        msg.data = self._episode_meta_json
+        self._episode_meta_pub.publish(msg)
+
+    def set_episode_meta(self, meta: Dict[str, object]):
+        self._episode_meta_json = json.dumps(meta)
+        self._publish_episode_meta()
+
     def _publish_stones_in_truck(self):
         if self._node is None or self._int_msg_type is None or self._stones_pub is None:
             return
@@ -259,10 +281,8 @@ def _enable_extensions() -> None:
 
     required_exts = ["isaacsim.ros2.bridge", "isaacsim.asset.importer.urdf"]
     for ext_name in required_exts:
-        was_enabled = bool(ext_mgr.is_extension_enabled(ext_name))
         ext_mgr.set_extension_enabled_immediate(ext_name, True)
         now_enabled = bool(ext_mgr.is_extension_enabled(ext_name))
-        print(f"[sim] enable request sent: {ext_name} (before={was_enabled}, after={now_enabled})", flush=True)
         if not now_enabled:
             raise RuntimeError(f"failed to enable required extension: {ext_name}")
 
@@ -604,7 +624,7 @@ def _attach_sensors(excavator_prim: str):
         # Driver camera: center-forward viewpoint on upper body.
         position=(0.75, 0.0, 1.3),
         frequency=20,
-        resolution=(640, 360),
+        resolution=(240, 160),
         orientation=(1.0, 0.0, 0.0, 0.0),
     )
     camera_bucket = Camera(
@@ -612,7 +632,7 @@ def _attach_sensors(excavator_prim: str):
         # Bucket camera: mounted on arm_link looking toward bucket area.
         position=(3.7, -0.4, 2.3),
         frequency=20,
-        resolution=(640, 360),
+        resolution=(240, 160),
         orientation=(0.0, 0.382683, 0.0, -0.923880),
     )
     lidar = LidarRtx(
@@ -657,7 +677,7 @@ def _attach_sensors(excavator_prim: str):
                     # Set focal length to 8mm as requested.
                     usd_cam.GetFocalLengthAttr().Set(8.0)
                     horizontal = float(usd_cam.GetHorizontalApertureAttr().Get() or 2.0955)
-                    vertical = horizontal * 360.0 / 640.0
+                    vertical = horizontal * 160.0 / 240.0
                     usd_cam.GetVerticalApertureAttr().Set(vertical)
         if driver_mount_prim != excavator_prim:
             print(f"[sim] driver camera mount prim: {driver_mount_prim}")
@@ -672,8 +692,6 @@ def _attach_sensors(excavator_prim: str):
         else:
             print(f"[sim] lidar mount prim not found, fallback to: {excavator_prim}")
 
-    print("[sim] lidar config: customized_lidar", flush=True)
-
     print("[sim] sensor topics (via ROS2 bridge graph):")
     print("[sim]  /excavator/camera_driver/rgb -> sensor_msgs/Image")
     print("[sim]  /excavator/camera_bucket/rgb -> sensor_msgs/Image")
@@ -683,6 +701,7 @@ def _attach_sensors(excavator_prim: str):
     print("[sim]  /excavator/reset <- std_msgs/Int32 (1 triggers reset)")
     print("[sim]  /excavator/ready -> std_msgs/Bool")
     print("[sim]  /excavator/stones_in_truck -> std_msgs/Int32")
+    print("[sim]  /excavator/episode_meta -> std_msgs/String (json)")
 
     return {
         "driver_mount_prim": driver_mount_prim,
@@ -690,8 +709,8 @@ def _attach_sensors(excavator_prim: str):
         "camera_driver_prim": f"{driver_mount_prim}/camera_driver",
         "camera_bucket_prim": f"{bucket_mount_prim}/camera_bucket",
         "lidar_prim": lidar_prim_path,
-        "width": 640,
-        "height": 360,
+        "width": 240,
+        "height": 160,
     }
 
 
@@ -712,8 +731,8 @@ def _setup_ros2_bridge_graph(excavator_prim: str, sensor_paths: dict):
             lidar_enabled = bool(lidar_candidate and lidar_candidate.IsValid())
         if lidar_prim and not lidar_enabled:
             print(f"[sim] lidar prim invalid, skip lidar ROS bridge: {lidar_prim}", flush=True)
-        width = int(sensor_paths.get("width", 640))
-        height = int(sensor_paths.get("height", 360))
+        width = int(sensor_paths.get("width", 240))
+        height = int(sensor_paths.get("height", 160))
 
         create_nodes = [
             ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
@@ -921,20 +940,23 @@ def run(headless: bool, excavator_asset: str | None, seed: int | None):
 
         sensor_paths = _attach_sensors(excavator_prim)
         _setup_ros2_bridge_graph(excavator_prim, sensor_paths)
+        if joint_bridge is not None:
+            joint_bridge.set_episode_meta(
+                {
+                    "seed": seed,
+                    "truck_bottom_center_xy": [float(truck_bottom_center[0]), float(truck_bottom_center[1])],
+                    "pile_center_xy": [float(pile_center[0]), float(pile_center[1])],
+                    "stone_count": int(len(stone_specs)),
+                    "physics_dt": float(cfg.physics_dt),
+                    "render_every_n_steps": int(cfg.render_every_n_steps),
+                }
+            )
 
         world.reset()
         world.play()
         if joint_bridge is not None:
             joint_bridge.set_ready(False)
         print(f"[sim] randomized truck bottom-center (x, y): {truck_bottom_center}", flush=True)
-        print(
-            f"[sim] pile bottom range x=[{cfg.pile_x_min}, {cfg.pile_x_max}] y=[{cfg.pile_y_min}, {cfg.pile_y_max}]",
-            flush=True,
-        )
-        print(
-            f"[sim] stones: count={len(stone_specs)}, spawn interval={cfg.stone_spawn_interval_s}s",
-            flush=True,
-        )
         print(
             f"[sim] stones drop point (x, y): ({pile_center[0]}, {pile_center[1]}), z range=[{cfg.stone_drop_height_min}, {cfg.stone_drop_height_max}]",
             flush=True,
@@ -962,6 +984,16 @@ def run(headless: bool, excavator_asset: str | None, seed: int | None):
                         joint_bridge.set_ready(False)
                         truck_bottom_center, pile_center, stone_specs = _build_randomized_environment(
                             stage, rng, cfg, physics_material_path=high_friction_material
+                        )
+                        joint_bridge.set_episode_meta(
+                            {
+                                "seed": seed,
+                                "truck_bottom_center_xy": [float(truck_bottom_center[0]), float(truck_bottom_center[1])],
+                                "pile_center_xy": [float(pile_center[0]), float(pile_center[1])],
+                                "stone_count": int(len(stone_specs)),
+                                "physics_dt": float(cfg.physics_dt),
+                                "render_every_n_steps": int(cfg.render_every_n_steps),
+                            }
                         )
                         stone_idx = 0
                         joint_bridge.set_stones_in_truck_count(0)
@@ -1006,6 +1038,16 @@ def run(headless: bool, excavator_asset: str | None, seed: int | None):
                         joint_bridge.set_ready(False)
                         truck_bottom_center, pile_center, stone_specs = _build_randomized_environment(
                             stage, rng, cfg, physics_material_path=high_friction_material
+                        )
+                        joint_bridge.set_episode_meta(
+                            {
+                                "seed": seed,
+                                "truck_bottom_center_xy": [float(truck_bottom_center[0]), float(truck_bottom_center[1])],
+                                "pile_center_xy": [float(pile_center[0]), float(pile_center[1])],
+                                "stone_count": int(len(stone_specs)),
+                                "physics_dt": float(cfg.physics_dt),
+                                "render_every_n_steps": int(cfg.render_every_n_steps),
+                            }
                         )
                         stone_idx = 0
                         joint_bridge.set_stones_in_truck_count(0)

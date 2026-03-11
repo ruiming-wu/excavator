@@ -6,6 +6,16 @@ conda activate isaac
 pip install --upgrade pip
 pip install "isaacsim[all,extscache]==5.1.0" --extra-index-url https://pypi.nvidia.com
 pip install pygame==2.6.1
+pip install open3d==0.19.0
+pip install fastparquet==2025.12.0
+pip install pyarrow==23.0.1
+
+ROS2:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+```
+
 
 ## simulator
 推荐使用启动脚本：
@@ -29,4 +39,20 @@ scripts/teleop.sh
 
 ```bash
 scripts/vis.sh
+```
+
+## recording
+采集器：
+
+```bash
+scripts/record.sh
+```
+
+录制控制：
+
+```text
+keyboard 1 / gamepad A -> start
+keyboard 2 / gamepad B -> finish and save
+keyboard 3 / gamepad X -> env reset
+keyboard 4 / gamepad Y -> zero joints
 ```

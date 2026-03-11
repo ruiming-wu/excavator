@@ -32,6 +32,8 @@ class TeleopConfig:
     left_y_axis: int
     right_x_axis: int
     right_y_axis: int
+    a_button: int
+    b_button: int
     x_button: int
     y_button: int
     zero_goal_tol: float
@@ -43,6 +45,7 @@ class JoystickTeleopNode(Node):
         self.cfg = cfg
         self.publisher = self.create_publisher(JointState, "/excavator/cmd_joint", 50)
         self.reset_publisher = self.create_publisher(Int32, "/excavator/reset", 10)
+        self.record_control_publisher = self.create_publisher(Int32, "/excavator/record_control", 10)
         self.subscriber = self.create_subscription(JointState, "/excavator/joint_states", self.on_joint_states, 50)
         self.ready_subscriber = self.create_subscription(Bool, "/excavator/ready", self.on_ready, 10)
 
@@ -60,6 +63,18 @@ class JoystickTeleopNode(Node):
         msg.data = 1
         self.reset_publisher.publish(msg)
         self.get_logger().info("Published /excavator/reset = 1")
+
+    def request_record_start(self) -> None:
+        msg = Int32()
+        msg.data = 1
+        self.record_control_publisher.publish(msg)
+        self.get_logger().info("Published /excavator/record_control = 1 (start)")
+
+    def request_record_finish(self) -> None:
+        msg = Int32()
+        msg.data = 2
+        self.record_control_publisher.publish(msg)
+        self.get_logger().info("Published /excavator/record_control = 2 (finish)")
 
     def reset_joint_targets_to_zero(self) -> None:
         self._start_zero_goal_blocking()
@@ -202,6 +217,8 @@ def parse_args() -> TeleopConfig:
     parser.add_argument("--left-y-axis", type=int, default=1)
     parser.add_argument("--right-x-axis", type=int, default=2)
     parser.add_argument("--right-y-axis", type=int, default=3)
+    parser.add_argument("--a-button", type=int, default=0, help="Xbox A button index in pygame")
+    parser.add_argument("--b-button", type=int, default=1, help="Xbox B button index in pygame")
     parser.add_argument("--x-button", type=int, default=3, help="Xbox X button index in pygame")
     parser.add_argument("--y-button", type=int, default=4, help="Xbox Y button index in pygame")
     parser.add_argument("--zero-goal-tol", type=float, default=0.05, help="Close-to-zero tolerance in radians")
@@ -218,13 +235,15 @@ def parse_args() -> TeleopConfig:
         left_y_axis=args.left_y_axis,
         right_x_axis=args.right_x_axis,
         right_y_axis=args.right_y_axis,
+        a_button=args.a_button,
+        b_button=args.b_button,
         x_button=args.x_button,
         y_button=args.y_button,
         zero_goal_tol=args.zero_goal_tol,
     )
 
 
-def _keyboard_to_controls() -> tuple[float, float, float, float, bool, bool]:
+def _keyboard_to_controls() -> tuple[float, float, float, float, bool, bool, bool, bool]:
     keys = pygame.key.get_pressed()
     lx = 0.0
     ly = 0.0
@@ -249,9 +268,11 @@ def _keyboard_to_controls() -> tuple[float, float, float, float, bool, bool]:
     if keys[pygame.K_k]:
         ry += 1.0
 
+    start_pressed = bool(keys[pygame.K_1])
+    finish_pressed = bool(keys[pygame.K_2])
     x_pressed = bool(keys[pygame.K_3])
     y_pressed = bool(keys[pygame.K_4])
-    return lx, ly, rx, ry, x_pressed, y_pressed
+    return lx, ly, rx, ry, start_pressed, finish_pressed, x_pressed, y_pressed
 
 
 def main() -> None:
@@ -278,6 +299,8 @@ def main() -> None:
         print("  left X  -> swing (left larger, right smaller)")
         print("  right Y -> boom (up larger)")
         print("  right X -> bucket (left larger)")
+        print("  A button -> record start")
+        print("  B button -> record finish")
         print("  X button -> env reset only")
         print("  Y button -> zero-goal blocking")
         print("Ctrl+C to quit")
@@ -289,6 +312,8 @@ def main() -> None:
         print("[teleop] controls:")
         print("  WASD -> left stick (A/D: X, W/S: Y)")
         print("  IJKL -> right stick (J/L: X, I/K: Y)")
+        print("  1 -> A button (record start)")
+        print("  2 -> B button (record finish)")
         print("  3 -> X button (env reset)")
         print("  4 -> Y button (zero-goal blocking)")
         print("Keep the pygame window focused. Ctrl+C to quit")
@@ -296,6 +321,8 @@ def main() -> None:
     rclpy.init()
     node = JoystickTeleopNode(cfg)
     period = 1.0 / cfg.hz
+    prev_start_pressed = False
+    prev_finish_pressed = False
     prev_x_pressed = False
     prev_y_pressed = False
 
@@ -307,18 +334,26 @@ def main() -> None:
                 ly = float(js.get_axis(cfg.left_y_axis))
                 rx = float(js.get_axis(cfg.right_x_axis))
                 ry = float(js.get_axis(cfg.right_y_axis))
+                start_pressed = bool(js.get_button(cfg.a_button))
+                finish_pressed = bool(js.get_button(cfg.b_button))
                 x_pressed = bool(js.get_button(cfg.x_button))
                 y_pressed = bool(js.get_button(cfg.y_button))
             else:
-                lx, ly, rx, ry, x_pressed, y_pressed = _keyboard_to_controls()
+                lx, ly, rx, ry, start_pressed, finish_pressed, x_pressed, y_pressed = _keyboard_to_controls()
 
             rclpy.spin_once(node, timeout_sec=0.0)
-            if x_pressed and not prev_x_pressed:
+            if start_pressed and not prev_start_pressed:
+                node.request_record_start()
+            elif finish_pressed and not prev_finish_pressed:
+                node.request_record_finish()
+            elif x_pressed and not prev_x_pressed:
                 node.request_env_reset()
             elif y_pressed and not prev_y_pressed and node.ready:
                 node.reset_joint_targets_to_zero()
             else:
                 node.step(lx, ly, rx, ry)
+            prev_start_pressed = start_pressed
+            prev_finish_pressed = finish_pressed
             prev_x_pressed = x_pressed
             prev_y_pressed = y_pressed
             time.sleep(period)

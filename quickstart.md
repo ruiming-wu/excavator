@@ -21,7 +21,7 @@ scripts/sim.sh
 
 Terminal B:
 ```bash
-python -m excavator_sim.ros.record_topics
+scripts/record.sh
 ```
 
 Terminal C:
@@ -29,21 +29,33 @@ Terminal C:
 scripts/teleop.sh
 ```
 
+录制控制：
+```text
+1 / A -> start recording
+2 / B -> finish recording and save
+3 / X -> reset env
+4 / Y -> zero joints
+```
+
 ## 4) Collect >= 30 trajectories
 
 ```bash
 for i in $(seq 1 30); do
   echo "Collect run $i"
-  python -m excavator_sim.ros.record_topics
-  # stop with Ctrl+C after each expert demo
-  sleep 1
+  # keep recorder and sim running, use 1/A to start and 2/B to finish each demo
 done
 ```
 
 ## 5) Replay validation
 
 ```bash
-python -m excavator_sim.replay --run-dir run_000
+scripts/replay.sh --run-dir run_000
+```
+
+或者直接运行：
+
+```bash
+python data/replay.py --run-dir run_000
 ```
 
 ## 6) Train first policy
