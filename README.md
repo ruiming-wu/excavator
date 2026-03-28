@@ -408,7 +408,7 @@ python -m excavator_policy.train --config src/excavator_policy/config.yaml
 
 ## 13. 训练输出与日志
 
-现在训练输出不再写到 `runs/`，而是写到：
+现在训练输出写到：
 
 - `logs/<run_id>/model.pt`
 - `logs/<run_id>/metrics.json`

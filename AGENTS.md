@@ -37,5 +37,5 @@
 ## 验收标准（最小）
 - 能稳定启动仿真并持续运行。
 - 能录到至少一条 `run_XXX`（包含 `meta.json`、`action.parquet`、`proprio.parquet` 以及相机/点云原始数据）。
-- 训练能产出 `runs/<run_id>/model.pt`。
+- 训练能产出 `logs/<run_id>/model.pt`。
 - 部署评估能产出 `deploy_metrics.json`。
