@@ -25,6 +25,7 @@ JOINT_ORDER = ["boom_joint", "arm_joint", "bucket_joint", "swing_joint"]
 @dataclass
 class ReplayConfig:
     run_dir: Path
+    replay_type: str
     speed: float
     width: int
     height: int
@@ -191,6 +192,124 @@ class ReplayState:
             self.stones_idx += 1
 
 
+class AlignedReplayState:
+    def __init__(self, cfg: ReplayConfig):
+        self.cfg = cfg
+        self.run_dir = cfg.run_dir
+        self.paths = get_paths()
+        self.raw_run_dir = self.paths.raw_data / self.run_dir.name
+        if not self.raw_run_dir.exists():
+            raise FileNotFoundError(f"raw run dir not found for aligned replay: {self.raw_run_dir}")
+
+        self.meta = json.loads((self.raw_run_dir / "meta.json").read_text(encoding="utf-8"))
+        self.align_meta = {}
+        align_meta_path = self.run_dir / "align_meta.json"
+        if align_meta_path.exists():
+            self.align_meta = json.loads(align_meta_path.read_text(encoding="utf-8"))
+        self.frames_df = _load_table(self.run_dir, "frames")
+        if self.frames_df.empty:
+            raise ValueError(f"aligned frames table is empty: {self.run_dir}")
+
+        self.frame_ptr = 0
+        self.driver_image: Optional[pygame.Surface] = None
+        self.bucket_image: Optional[pygame.Surface] = None
+        self.lidar_points: Optional[np.ndarray] = None
+        self.current_positions: Dict[str, float] = {j: 0.0 for j in JOINT_ORDER}
+        self.target_positions: Dict[str, float] = {j: 0.0 for j in JOINT_ORDER}
+        self.stones_in_truck = 0
+        self.start_recv_ns = int(self.frames_df["axis_recv_ns"].iloc[0])
+        self.finish_recv_ns = int(self.frames_df["axis_recv_ns"].iloc[-1])
+        self.duration_s = max(0.0, (self.finish_recv_ns - self.start_recv_ns) / 1e9)
+
+        self.last_driver_path = ""
+        self.last_bucket_path = ""
+        self.last_lidar_path = ""
+
+    @staticmethod
+    def _as_sequence(value) -> list:
+        if value is None:
+            return []
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        if isinstance(value, (list, tuple)):
+            return list(value)
+        try:
+            if pd.isna(value):
+                return []
+        except Exception:
+            pass
+        if hasattr(value, "tolist"):
+            try:
+                return list(value.tolist())
+            except Exception:
+                pass
+        return []
+
+    @staticmethod
+    def _surface_from_array(arr: np.ndarray) -> Optional[pygame.Surface]:
+        if arr.ndim == 3 and arr.shape[2] >= 3:
+            rgb = arr[:, :, :3]
+        elif arr.ndim == 2:
+            rgb = np.repeat(arr[:, :, None], 3, axis=2)
+        else:
+            return None
+        rgb_whc = np.transpose(rgb, (1, 0, 2)).copy()
+        return pygame.surfarray.make_surface(rgb_whc)
+
+    def _apply_joint_snapshot(self, row: pd.Series, name_key: str, pos_key: str, target: Dict[str, float]) -> None:
+        names = self._as_sequence(row.get(name_key, []))
+        positions = self._as_sequence(row.get(pos_key, []))
+        if not names or not positions:
+            return
+        for name, pos in zip(names, positions):
+            if name in target:
+                target[name] = float(pos)
+
+    def _load_optional_surface(self, rel_path: str) -> Optional[pygame.Surface]:
+        if not rel_path:
+            return None
+        abs_path = self.raw_run_dir / rel_path
+        if not abs_path.exists():
+            return None
+        return self._surface_from_array(np.load(abs_path))
+
+    def _load_optional_points(self, rel_path: str) -> Optional[np.ndarray]:
+        if not rel_path:
+            return None
+        abs_path = self.raw_run_dir / rel_path
+        if not abs_path.exists():
+            return None
+        return np.load(abs_path)
+
+    def update_until(self, recv_ns: int) -> None:
+        while self.frame_ptr < len(self.frames_df) and int(self.frames_df.iloc[self.frame_ptr]["axis_recv_ns"]) <= recv_ns:
+            row = self.frames_df.iloc[self.frame_ptr]
+
+            driver_rel = str(row.get("camera_driver_path", "") or "")
+            bucket_rel = str(row.get("camera_bucket_path", "") or "")
+            lidar_rel = str(row.get("lidar_path", "") or "")
+
+            driver_surface = self._load_optional_surface(driver_rel)
+            if driver_surface is not None:
+                self.driver_image = driver_surface
+                self.last_driver_path = Path(driver_rel).name
+
+            bucket_surface = self._load_optional_surface(bucket_rel)
+            if bucket_surface is not None:
+                self.bucket_image = bucket_surface
+                self.last_bucket_path = Path(bucket_rel).name
+
+            lidar_points = self._load_optional_points(lidar_rel)
+            if lidar_points is not None:
+                self.lidar_points = lidar_points
+                self.last_lidar_path = Path(lidar_rel).name
+
+            self._apply_joint_snapshot(row, "proprio_name", "proprio_position", self.current_positions)
+            self._apply_joint_snapshot(row, "action_name", "action_position", self.target_positions)
+            self.stones_in_truck = int(row.get("stones_in_truck_stones_count", self.stones_in_truck))
+            self.frame_ptr += 1
+
+
 def _draw_lidar(screen: pygame.Surface, rect: pygame.Rect, points: Optional[np.ndarray], font: pygame.font.Font) -> None:
     pygame.draw.rect(screen, (50, 50, 50), rect, width=2)
     screen.blit(font.render("lidar replay view", True, (180, 180, 180)), (rect.x + 12, rect.y + 8))
@@ -252,14 +371,15 @@ def _draw_lidar(screen: pygame.Surface, rect: pygame.Rect, points: Optional[np.n
         pygame.draw.circle(screen, (int(c[0]), int(c[1]), int(c[2])), p, 1)
 
 
-def _resolve_run_dir(run_dir_arg: str) -> Path:
+def _resolve_run_dir(run_dir_arg: str, replay_type: str) -> Path:
     p = Path(run_dir_arg).expanduser()
     if p.is_absolute() and p.exists():
         return p
     if p.exists():
         return p.resolve()
     paths = get_paths()
-    candidate = paths.raw_data / run_dir_arg
+    base = paths.raw_data if replay_type == "raw" else paths.aligned_data
+    candidate = base / run_dir_arg
     if candidate.exists():
         return candidate.resolve()
     raise FileNotFoundError(f"run dir not found: {run_dir_arg}")
@@ -267,14 +387,16 @@ def _resolve_run_dir(run_dir_arg: str) -> Path:
 
 def parse_args() -> ReplayConfig:
     parser = argparse.ArgumentParser(description="Replay one recorded excavator run using recv time")
-    parser.add_argument("--run-dir", required=True, help="Run directory path or run_xxx name under data/raw")
+    parser.add_argument("--type", default="raw", choices=["raw", "aligned"], help="Replay raw run or aligned run")
+    parser.add_argument("--run-dir", required=True, help="Run directory path or run_xxx name under data/raw or data/aligned")
     parser.add_argument("--speed", type=float, default=1.0, help="Playback speed multiplier")
     parser.add_argument("--width", type=int, default=1400)
     parser.add_argument("--height", type=int, default=860)
     parser.add_argument("--fps", type=float, default=60.0)
     args = parser.parse_args()
     return ReplayConfig(
-        run_dir=_resolve_run_dir(args.run_dir),
+        run_dir=_resolve_run_dir(args.run_dir, str(args.type)),
+        replay_type=str(args.type),
         speed=float(args.speed),
         width=int(args.width),
         height=int(args.height),
@@ -284,11 +406,11 @@ def parse_args() -> ReplayConfig:
 
 def main() -> None:
     cfg = parse_args()
-    state = ReplayState(cfg)
+    state = ReplayState(cfg) if cfg.replay_type == "raw" else AlignedReplayState(cfg)
 
     pygame.init()
     screen = pygame.display.set_mode((cfg.width, cfg.height))
-    pygame.display.set_caption(f"Excavator Replay - {cfg.run_dir.name}")
+    pygame.display.set_caption(f"Excavator Replay ({cfg.replay_type}) - {cfg.run_dir.name}")
     font = pygame.font.SysFont("monospace", 24)
     small_font = pygame.font.SysFont("monospace", 20)
     clock = pygame.time.Clock()
@@ -310,12 +432,12 @@ def main() -> None:
                         paused = not paused
                     elif event.key == pygame.K_r:
                         playback_offset_ns = 0
-                        state = ReplayState(cfg)
+                        state = ReplayState(cfg) if cfg.replay_type == "raw" else AlignedReplayState(cfg)
                     elif event.key == pygame.K_RIGHT:
                         playback_offset_ns = min(int(state.duration_s * 1e9), playback_offset_ns + int(1e9))
                     elif event.key == pygame.K_LEFT:
                         playback_offset_ns = max(0, playback_offset_ns - int(1e9))
-                        state = ReplayState(cfg)
+                        state = ReplayState(cfg) if cfg.replay_type == "raw" else AlignedReplayState(cfg)
                         state.update_until(state.start_recv_ns + playback_offset_ns)
             if quit_requested:
                 break
@@ -348,7 +470,7 @@ def main() -> None:
             lidar_rect = pygame.Rect(760, 430, 560, 380)
             _draw_lidar(screen, lidar_rect, state.lidar_points, small_font)
 
-            screen.blit(font.render(f"run: {cfg.run_dir.name}", True, (220, 220, 220)), (40, 430))
+            screen.blit(font.render(f"run: {cfg.run_dir.name} ({cfg.replay_type})", True, (220, 220, 220)), (40, 430))
             screen.blit(font.render(f"stones in truck: {state.stones_in_truck}", True, (220, 220, 220)), (40, 465))
             screen.blit(font.render(f"time: {playback_offset_ns / 1e9:6.2f} / {state.duration_s:6.2f} s", True, (220, 220, 220)), (40, 500))
             screen.blit(font.render(f"speed: x{cfg.speed:.2f}  {'paused' if paused else 'playing'}", True, (220, 220, 220)), (40, 535))

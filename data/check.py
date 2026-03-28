@@ -207,7 +207,7 @@ def parse_args() -> CheckConfig:
     parser.add_argument("--joint-tol-rad", type=float, default=0.1)
     parser.add_argument("--min-duration-s", type=float, default=20.0)
     parser.add_argument("--max-duration-s", type=float, default=50.0)
-    parser.add_argument("--min-stone-ratio", type=float, default=0.08)
+    parser.add_argument("--min-stone-ratio", type=float, default=0.1)
     parser.add_argument("--min-sensor-hz", type=float, default=15.0)
     args = parser.parse_args()
     return CheckConfig(

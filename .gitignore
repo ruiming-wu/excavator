@@ -7,4 +7,5 @@ __pycache__/
 
 # ignore data files
 data/raw/
-data/processed/
+data/aligned/
+*.zip

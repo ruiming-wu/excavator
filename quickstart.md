@@ -1,73 +1,69 @@
-# Excavator Pipeline Quickstart
-
-## 1) Load env / start sim launcher
+# Excavator Quickstart
 
 ```bash
-source scripts/sim.sh
+conda activate isaac
+source /opt/ros/jazzy/setup.bash
 ```
 
-## 2) Run Isaac Sim minimal scene
+## 1. 启动仿真
 
 ```bash
-scripts/sim.sh
+./scripts/sim.sh
 ```
 
-## 3) Teleop + record one trajectory
-
-Terminal A:
-```bash
-scripts/sim.sh
-```
-
-Terminal B:
-```bash
-scripts/record.sh
-```
-
-Terminal C:
-```bash
-scripts/teleop.sh
-```
-
-录制控制：
-```text
-1 / A -> start recording
-2 / B -> finish recording and save
-3 / X -> reset env
-4 / Y -> zero joints
-```
-
-## 4) Collect >= 30 trajectories
+## 2. 启动录制器
 
 ```bash
-for i in $(seq 1 30); do
-  echo "Collect run $i"
-  # keep recorder and sim running, use 1/A to start and 2/B to finish each demo
-done
+./scripts/record.sh
 ```
 
-## 5) Replay validation
+## 3. 启动 teleop
 
 ```bash
-scripts/replay.sh --run-dir run_000
+./scripts/teleop.sh
 ```
 
-或者直接运行：
+## 4. 可视化
 
 ```bash
-python data/replay.py --run-dir run_000
+./scripts/vis.sh
 ```
 
-## 6) Train first policy
+## 5. 录制控制
+
+- `1 / A`: 开始录制
+- `2 / B`: 结束录制
+- `3 / X`: reset env
+- `4 / Y`: joint target 归零
+
+## 6. 检查数据
 
 ```bash
-python -m excavator_policy.train --epochs 20 --batch-size 16
+./scripts/check.sh
 ```
 
-## 7) Deployment validation
+## 7. 对齐数据
 
 ```bash
-python -m excavator_policy.deploy_sim \
-  --checkpoint runs/<run_id>/model.pt \
-  --eval-run data/raw/run_000
+./scripts/align.sh
 ```
+
+## 8. 回放
+
+```bash
+./scripts/replay.sh --type raw --run-dir run_008
+./scripts/replay.sh --type aligned --run-dir run_008
+```
+
+## 9. 训练
+
+```bash
+python -m excavator_policy.train --config src/excavator_policy/config.yaml
+```
+
+训练输出在：
+
+- `logs/<run_id>/model.pt`
+- `logs/<run_id>/metrics.json`
+
+更完整说明见 `README.md`。

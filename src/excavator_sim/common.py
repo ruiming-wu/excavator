@@ -14,7 +14,7 @@ class ProjectPaths:
     root: Path
     assets: Path
     raw_data: Path
-    processed_data: Path
+    aligned_data: Path
     runs: Path
     logs: Path
 
@@ -26,10 +26,10 @@ def get_paths() -> ProjectPaths:
         root=root,
         assets=_env_path("EXCAVATOR_ASSETS_DIR", str(root / "assets")),
         raw_data=_env_path("EXCAVATOR_DATA_RAW_DIR", str(root / "data" / "raw")),
-        processed_data=_env_path("EXCAVATOR_DATA_PROCESSED_DIR", str(root / "data" / "processed")),
+        aligned_data=_env_path("EXCAVATOR_DATA_ALIGNED_DIR", str(root / "data" / "aligned")),
         runs=_env_path("EXCAVATOR_RUNS_DIR", str(root / "runs")),
         logs=_env_path("EXCAVATOR_LOGS_DIR", str(root / "logs")),
     )
-    for p in [paths.assets, paths.raw_data, paths.processed_data, paths.runs, paths.logs]:
+    for p in [paths.assets, paths.raw_data, paths.aligned_data, paths.runs, paths.logs]:
         p.mkdir(parents=True, exist_ok=True)
     return paths
