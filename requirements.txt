@@ -1,0 +1,12 @@
+# Core numeric / data
+pyarrow==23.0.1
+fastparquet==2025.12.0
+PyYAML==6.0.2
+
+# UI / tools for joystick
+pygame==2.6.1
+
+# Notes:
+# - Isaac Sim itself is intentionally NOT listed here; install it manually.
+# - ROS2 Python packages such as rclpy, sensor_msgs_py, std_msgs, sensor_msgs
+#   are typically provided by the ROS2/Isaac environment rather than pip.

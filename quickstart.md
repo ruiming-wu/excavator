@@ -2,6 +2,12 @@
 
 ```bash
 conda activate isaac
+```
+
+项目默认使用 Isaac Sim 自带的 ROS2 Python 运行时。  
+只有在你需要系统 `ros2 topic ...` 命令行工具时，才额外执行：
+
+```bash
 source /opt/ros/jazzy/setup.bash
 ```
 
@@ -63,7 +69,8 @@ python -m excavator_policy.train --config src/excavator_policy/config.yaml
 
 训练输出在：
 
-- `logs/<run_id>/model.pt`
+- `logs/<run_id>/model_last.pt`
+- `logs/<run_id>/model_best.pt`
 - `logs/<run_id>/metrics.json`
 
 更完整说明见 `README.md`。

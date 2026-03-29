@@ -15,16 +15,18 @@
 
 ## 环境前置约束
 - 推荐在 `conda` 环境 `isaac` 中运行。
-- 需要 Isaac Sim / Isaac Lab 运行时，以及 ROS2（建议 Jazzy, Ubuntu 24.04）。
+- 需要 Isaac Sim / Isaac Lab 运行时。
+- 项目运行 `sim/teleop/record/vis` 默认使用 Isaac Sim 内置的 ROS2 Python 运行时，不再强制依赖本地 `/opt/ros/...` Python 包。
+- 如果需要系统 `ros2 topic ...` 等 CLI 工具，可选安装 ROS2（建议 Jazzy, Ubuntu 24.04）并手动 `source /opt/ros/jazzy/setup.bash`。
 - 先执行：
-  - `source /opt/ros/jazzy/setup.bash`
-  - `source scripts/env.sh`
+  - `source scripts/sim.sh`
 - Python 依赖至少包括：
-  - `numpy pandas pyarrow torch`
-  - `rclpy sensor_msgs_py`
+  - `numpy pandas pyarrow torch torchvision`
+  - `pygame pyyaml wandb`
+  - `rclpy sensor_msgs_py`（由 Isaac Sim / ROS2 环境提供）
 
 ## 协作执行顺序（默认）
-1. 先确认环境：Python、ROS2、Isaac 扩展可用。
+1. 先确认环境：Python、Isaac 扩展可用；如果要用系统 `ros2` CLI，再确认本地 ROS2 可用。
 2. 再确认数据链路：`/excavator/camera_front/rgb`、`/excavator/lidar/points`、`/excavator/joint_states`、`/excavator/cmd_joint`。
 3. 然后做训练与评估。
 4. 所有修改优先保持最小改动并可回滚。
@@ -37,5 +39,5 @@
 ## 验收标准（最小）
 - 能稳定启动仿真并持续运行。
 - 能录到至少一条 `run_XXX`（包含 `meta.json`、`action.parquet`、`proprio.parquet` 以及相机/点云原始数据）。
-- 训练能产出 `logs/<run_id>/model.pt`。
+- 训练能产出 `logs/<run_id>/model_last.pt`，并最好同时产出 `logs/<run_id>/model_best.pt`。
 - 部署评估能产出 `deploy_metrics.json`。

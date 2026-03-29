@@ -2,93 +2,335 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
+import random
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from excavator_policy.dataset import build_dataset
+from excavator_policy.config import load_config
+from excavator_policy.dataset import build_dataset_from_config
 from excavator_policy.model import DiffusionPolicy, diffusion_loss
 
 
 def _collate(batch):
     obs_list, act_list = zip(*batch)
-    max_prop = max([x["proprio"].numel() for x in obs_list] + [a.numel() for a in act_list])
-
-    def _pad(x, n):
-        if x.numel() >= n:
-            return x[:n]
-        return torch.cat([x, torch.zeros(n - x.numel(), dtype=x.dtype)], dim=0)
-
     obs = {
-        "rgb": torch.stack([x["rgb"] for x in obs_list], dim=0),
+        "camera_driver": torch.stack([x["camera_driver"] for x in obs_list], dim=0),
+        "camera_bucket": torch.stack([x["camera_bucket"] for x in obs_list], dim=0),
         "points": torch.stack([x["points"] for x in obs_list], dim=0),
-        "proprio": torch.stack([_pad(x["proprio"], max_prop) for x in obs_list], dim=0),
+        "current_state": torch.stack([x["current_state"] for x in obs_list], dim=0),
     }
-    action = torch.stack([_pad(a, max_prop) for a in act_list], dim=0)
+    action = torch.stack(act_list, dim=0)
     return obs, action
 
 
+def _set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train excavation imitation policy")
-    parser.add_argument("--raw-root", default=os.environ.get("EXCAVATOR_DATA_RAW_DIR", "data/raw"))
-    parser.add_argument("--runs-dir", default=os.environ.get("EXCAVATOR_RUNS_DIR", "runs"))
-    parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--window", type=int, default=8)
-    parser.add_argument("--horizon", type=int, default=1)
+    parser = argparse.ArgumentParser(description="Train excavation diffusion policy")
+    parser.add_argument("--config", default=str(Path(__file__).with_name("config.yaml")))
     return parser.parse_args()
+
+
+def _resolve_device(device_str: str) -> str:
+    if device_str == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    return device_str
+
+
+def _init_wandb(train_cfg: dict, full_cfg: dict, out_dir: Path):
+    wandb_cfg = train_cfg.get("wandb", {}) or {}
+    if not bool(wandb_cfg.get("enabled", True)):
+        return None
+    try:
+        import wandb
+    except ImportError as exc:
+        raise ImportError("wandb is required by training config. Please install wandb in the current environment.") from exc
+
+    run = wandb.init(
+        project=str(wandb_cfg.get("project", "excavator_policy")),
+        name=str(wandb_cfg.get("name", "excavator_policy")),
+        mode=str(wandb_cfg.get("mode", "online")),
+        dir=str(out_dir),
+        config=deepcopy(full_cfg),
+    )
+    return run
+
+
+def _list_run_names(data_cfg: dict) -> list[str]:
+    aligned_root = Path(data_cfg["aligned_root"])
+    run_glob = str(data_cfg.get("run_glob", "run_*"))
+    runs = []
+    for run_dir in sorted([p for p in aligned_root.glob(run_glob) if p.is_dir()]):
+        if (run_dir / "frames.parquet").exists():
+            runs.append(run_dir.name)
+    return runs
+
+
+def _split_runs(run_names: list[str], train_ratio: float, seed: int) -> tuple[list[str], list[str]]:
+    if not run_names:
+        return [], []
+    shuffled = list(run_names)
+    rnd = random.Random(seed)
+    rnd.shuffle(shuffled)
+    if len(shuffled) == 1:
+        return shuffled, []
+    train_count = max(1, int(len(shuffled) * train_ratio))
+    if train_count >= len(shuffled):
+        train_count = len(shuffled) - 1
+    return sorted(shuffled[:train_count]), sorted(shuffled[train_count:])
+
+
+def _count_params(module: torch.nn.Module) -> dict[str, int]:
+    trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in module.parameters())
+    return {"trainable": int(trainable), "total": int(total)}
+
+
+def _model_stats(model: DiffusionPolicy) -> dict[str, dict[str, int]]:
+    return {
+        "image_encoder": _count_params(model.encoder.image_encoder),
+        "point_encoder": _count_params(model.encoder.point_encoder),
+        "state_encoder": _count_params(model.encoder.state_encoder),
+        "time_mlp": _count_params(model.time_mlp),
+        "denoise": _count_params(model.denoise),
+        "policy_total": _count_params(model),
+    }
+
+
+def _build_loader(dataset, train_cfg: dict, shuffle: bool) -> DataLoader:
+    num_workers = int(train_cfg.get("num_workers", 0))
+    pin_memory = bool(train_cfg.get("pin_memory", True))
+    persistent_workers = bool(train_cfg.get("persistent_workers", True)) and num_workers > 0
+    return DataLoader(
+        dataset,
+        batch_size=int(train_cfg.get("batch_size", 32)),
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers,
+        collate_fn=_collate,
+    )
+
+
+def _save_json(path: Path, payload: dict | list) -> None:
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _save_checkpoint(path: Path, model: DiffusionPolicy, joint_dim: int, horizon: int, cfg: dict, epoch: int) -> None:
+    torch.save(
+        {
+            "state_dict": model.state_dict(),
+            "joint_dim": joint_dim,
+            "horizon": horizon,
+            "config": cfg,
+            "epoch": epoch,
+        },
+        path,
+    )
 
 
 def main():
     args = parse_args()
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    cfg = load_config(args.config)
+    data_cfg = cfg["data"]
+    model_cfg = cfg["model"]
+    train_cfg = cfg["training"]
 
-    dataset = build_dataset(args.raw_root, window=args.window, horizon=args.horizon)
-    if len(dataset) == 0:
-        raise RuntimeError(f"No samples found under {args.raw_root}. Record trajectories first.")
-    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0, collate_fn=_collate)
+    seed = int(data_cfg.get("seed", 42))
+    _set_seed(seed)
 
-    sample_obs, sample_action = dataset[0]
-    proprio_dim = max(sample_obs["proprio"].numel(), sample_action.numel())
-    action_dim = proprio_dim
-
-    model = DiffusionPolicy(action_dim=action_dim, proprio_dim=proprio_dim).to(device)
-    optim = torch.optim.AdamW(model.parameters(), lr=args.lr)
-
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = Path(args.runs_dir) / run_id
+    device = _resolve_device(str(train_cfg.get("device", "auto")))
+    run_name = str(train_cfg.get("run_name", "")).strip() or datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = Path(train_cfg.get("output_dir", "logs")) / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    for epoch in range(args.epochs):
+    wandb_run = _init_wandb(train_cfg, cfg, out_dir)
+
+    all_runs = _list_run_names(data_cfg)
+    if not all_runs:
+        raise RuntimeError(f"No aligned runs with frames.parquet found under {data_cfg['aligned_root']}. Run align first.")
+
+    train_ratio = float(data_cfg.get("train_ratio", 0.9))
+    train_runs, val_runs = _split_runs(all_runs, train_ratio, seed)
+    train_dataset = build_dataset_from_config(data_cfg, allowed_runs=train_runs)
+    val_dataset = build_dataset_from_config(data_cfg, allowed_runs=val_runs) if val_runs else None
+    if len(train_dataset) == 0:
+        raise RuntimeError("Training dataset is empty after run split.")
+
+    loader = _build_loader(train_dataset, train_cfg, shuffle=True)
+    val_loader = _build_loader(val_dataset, train_cfg, shuffle=False) if val_dataset is not None and len(val_dataset) > 0 else None
+
+    joint_dim = len(data_cfg["joint_order"])
+    horizon = int(data_cfg["horizon"])
+    model = DiffusionPolicy(
+        joint_dim=joint_dim,
+        horizon=horizon,
+        hidden_dim=int(model_cfg.get("hidden_dim", 2048)),
+        time_dim=int(model_cfg.get("time_dim", 128)),
+        image_out_dim=int(model_cfg.get("image_out_dim", 512)),
+        image_pretrained=bool(model_cfg.get("image_pretrained", False)),
+        point_dim=int(data_cfg.get("point_dim", 3)),
+        point_hidden_dims=list(model_cfg.get("point_hidden_dims", [64, 128, 256, 512])),
+        point_out_dim=int(model_cfg.get("point_out_dim", 512)),
+        state_hidden_dims=list(model_cfg.get("state_hidden_dims", [256, 512])),
+        state_out_dim=int(model_cfg.get("state_out_dim", 512)),
+    ).to(device)
+    optim = torch.optim.AdamW(
+        model.parameters(),
+        lr=float(train_cfg.get("lr", 1e-4)),
+        weight_decay=float(train_cfg.get("weight_decay", 1e-4)),
+    )
+
+    param_stats = _model_stats(model)
+    manifest = {
+        "config_path": cfg.get("_config_path", ""),
+        "device": device,
+        "seed": seed,
+        "train_runs": train_runs,
+        "val_runs": val_runs,
+        "num_all_runs": len(all_runs),
+        "num_train_runs": len(train_runs),
+        "num_val_runs": len(val_runs),
+        "num_train_samples": len(train_dataset),
+        "num_val_samples": 0 if val_dataset is None else len(val_dataset),
+        "parameter_counts": param_stats,
+    }
+
+    _save_json(out_dir / "config.json", cfg)
+    _save_json(out_dir / "split.json", {"train_runs": train_runs, "val_runs": val_runs})
+    _save_json(out_dir / "model_stats.json", param_stats)
+    _save_json(out_dir / "manifest.json", manifest)
+
+    print(f"[train] run_name={run_name}")
+    print(f"[train] device={device} seed={seed}")
+    print(f"[train] train_runs({len(train_runs)}): {train_runs}")
+    print(f"[train] val_runs({len(val_runs)}): {val_runs}")
+    print(f"[train] num_train_samples={len(train_dataset)} num_val_samples={0 if val_dataset is None else len(val_dataset)}")
+    for part_name, stats in param_stats.items():
+        print(f"[train] params.{part_name}: trainable={stats['trainable']} total={stats['total']}")
+
+    if wandb_run is not None:
+        wandb_run.config.update(manifest, allow_val_change=True)
+
+    epochs = int(train_cfg.get("epochs", 30))
+    log_interval = int(train_cfg.get("log_interval", 10))
+    grad_clip_norm = float(train_cfg.get("grad_clip_norm", 1.0))
+    save_every_epoch = bool(train_cfg.get("save_every_epoch", False))
+    save_interval_epochs = int(train_cfg.get("save_interval_epochs", 25))
+
+    best_val_loss = None
+    best_val_epoch = None
+    final_train_loss = 0.0
+    final_val_loss = None
+    history = []
+    global_step = 0
+
+    for epoch in range(epochs):
         model.train()
         total = 0.0
-        for obs, action in loader:
-            obs = {k: v.to(device) for k, v in obs.items()}
-            action = action.to(device)
+        for step, (obs, action) in enumerate(loader, start=1):
+            global_step += 1
+            obs = {k: v.to(device, non_blocking=True) for k, v in obs.items()}
+            action = action.to(device, non_blocking=True)
             loss = diffusion_loss(model, obs, action)
             optim.zero_grad(set_to_none=True)
             loss.backward()
+            if grad_clip_norm > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
             optim.step()
             total += float(loss.item())
-        mean_loss = total / max(len(loader), 1)
-        print(f"epoch={epoch+1}/{args.epochs} loss={mean_loss:.6f}")
+            if step % log_interval == 0 or step == len(loader):
+                print(f"epoch={epoch + 1}/{epochs} step={step}/{len(loader)} global_step={global_step} train_loss={loss.item():.6f}")
+                if wandb_run is not None:
+                    wandb_run.log(
+                        {
+                            "train/loss_step": float(loss.item()),
+                            "train/epoch": epoch + 1,
+                            "train/global_step": global_step,
+                        }
+                    )
+        final_train_loss = total / max(len(loader), 1)
 
-    ckpt = out_dir / "model.pt"
-    torch.save(
-        {
-            "state_dict": model.state_dict(),
-            "proprio_dim": proprio_dim,
-            "action_dim": action_dim,
-            "args": vars(args),
-        },
-        ckpt,
-    )
-    (out_dir / "metrics.json").write_text(json.dumps({"final_loss": mean_loss}, indent=2), encoding="utf-8")
-    print(f"saved checkpoint: {ckpt}")
+        if val_loader is not None:
+            model.eval()
+            val_total = 0.0
+            with torch.no_grad():
+                for obs, action in val_loader:
+                    obs = {k: v.to(device, non_blocking=True) for k, v in obs.items()}
+                    action = action.to(device, non_blocking=True)
+                    val_total += float(diffusion_loss(model, obs, action).item())
+            final_val_loss = val_total / max(len(val_loader), 1)
+            print(f"epoch={epoch + 1}/{epochs} mean_train_loss={final_train_loss:.6f} mean_val_loss={final_val_loss:.6f}")
+            if best_val_loss is None or final_val_loss < best_val_loss:
+                best_val_loss = final_val_loss
+                best_val_epoch = epoch + 1
+                _save_checkpoint(out_dir / "model_best.pt", model, joint_dim, horizon, cfg, epoch + 1)
+        else:
+            final_val_loss = None
+            print(f"epoch={epoch + 1}/{epochs} mean_train_loss={final_train_loss:.6f}")
+
+        epoch_metrics = {
+            "epoch": epoch + 1,
+            "train_loss": final_train_loss,
+            "val_loss": final_val_loss,
+            "best_val_loss": best_val_loss,
+            "best_val_epoch": best_val_epoch,
+        }
+        history.append(epoch_metrics)
+        if wandb_run is not None:
+            log_payload = {
+                "train/loss_epoch": final_train_loss,
+                "train/epoch": epoch + 1,
+            }
+            if final_val_loss is not None:
+                log_payload["val/loss_epoch"] = final_val_loss
+            if best_val_loss is not None:
+                log_payload["val/best_loss"] = best_val_loss
+            if best_val_epoch is not None:
+                log_payload["val/best_epoch"] = best_val_epoch
+            wandb_run.log(log_payload)
+
+        should_save_interval = save_interval_epochs > 0 and (epoch + 1) % save_interval_epochs == 0
+        if save_every_epoch or should_save_interval:
+            _save_checkpoint(out_dir / f"model_epoch_{epoch + 1:03d}.pt", model, joint_dim, horizon, cfg, epoch + 1)
+
+    _save_checkpoint(out_dir / "model_last.pt", model, joint_dim, horizon, cfg, epochs)
+
+    metrics = {
+        "final_train_loss": final_train_loss,
+        "final_val_loss": final_val_loss,
+        "best_val_loss": best_val_loss,
+        "best_val_epoch": best_val_epoch,
+        "num_train_samples": len(train_dataset),
+        "num_val_samples": 0 if val_dataset is None else len(val_dataset),
+        "num_train_runs": len(train_runs),
+        "num_val_runs": len(val_runs),
+        "train_runs": train_runs,
+        "val_runs": val_runs,
+        "parameter_counts": param_stats,
+        "save_interval_epochs": save_interval_epochs,
+        "epochs": epochs,
+    }
+    _save_json(out_dir / "metrics.json", metrics)
+    _save_json(out_dir / "history.json", history)
+
+    if wandb_run is not None:
+        wandb_run.summary.update(metrics)
+        wandb_run.finish()
+    print(f"saved last checkpoint: {out_dir / 'model_last.pt'}")
+    if best_val_epoch is not None:
+        print(f"saved best checkpoint: {out_dir / 'model_best.pt'} (epoch={best_val_epoch})")
 
 
 if __name__ == "__main__":

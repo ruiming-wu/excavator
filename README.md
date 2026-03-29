@@ -37,13 +37,12 @@
 - Ubuntu 24.04
 - `conda` 环境：`isaac`
 - Isaac Sim 5.1
-- ROS2 Jazzy
+- 本地安装 ROS2 CLI 可选；项目运行时默认使用 Isaac Sim 自带的 ROS2 Python 运行时
 
 ### 3.1 激活环境
 
 ```bash
 conda activate isaac
-source /opt/ros/jazzy/setup.bash
 ```
 
 ### 3.2 Python 依赖
@@ -57,7 +56,7 @@ pip install numpy pandas pyarrow fastparquet pygame open3d pyyaml wandb
 训练相关依赖：
 
 ```bash
-pip install torch
+pip install torch torchvision
 ```
 
 说明：
@@ -65,6 +64,10 @@ pip install torch
 - `pyarrow` / `fastparquet`: 用于 parquet 读写
 - `PyYAML`: 用于读取 `src/excavator_policy/config.yaml`
 - `wandb`: 训练日志记录
+- `torchvision`: `ResNet-50` 图像 encoder
+- `rclpy` / `sensor_msgs_py` 运行时由 Isaac Sim 内置 `isaacsim.ros2.bridge` 提供
+- 如果你只想运行本仓库脚本，不再要求先 `source /opt/ros/jazzy/setup.bash`
+- 只有在你需要系统 `ros2 topic ...` 命令行工具时，才额外 `source /opt/ros/jazzy/setup.bash`
 
 ---
 
@@ -395,14 +398,15 @@ python -m excavator_policy.train --config src/excavator_policy/config.yaml
 
 ### 12.1 结构概览
 
-- 图像编码器：小型 CNN
-- 点云编码器：逐点 MLP + 平均池化
-- command 编码器：MLP
+- 图像编码器：共享权重的 `ResNet-50`
+- 点云编码器：PointNet 风格编码器（逐点 MLP + max pooling）
+- 状态编码器：2 层 MLP
+- 条件向量：直接拼接成 `2048` 维
 - denoiser：MLP
 
 ### 12.2 当前不是的东西
 
-当前模型还不是一个大规模 transformer policy，也不是 PointNet++ / 3D sparse conv 模型。它是一个先跑通闭环、先验证数据有效性的紧凑版 baseline。
+当前模型还不是一个大规模 transformer policy，也不是 PointNet++ / 3D sparse conv 模型。它现在是一个正式一些的多模态 diffusion-style baseline：`ResNet-50 + PointNet + state MLP + MLP denoiser`。
 
 ---
 
@@ -410,9 +414,18 @@ python -m excavator_policy.train --config src/excavator_policy/config.yaml
 
 现在训练输出写到：
 
-- `logs/<run_id>/model.pt`
+- `logs/<run_id>/model_last.pt`
+- `logs/<run_id>/model_best.pt`
 - `logs/<run_id>/metrics.json`
 - `logs/<run_id>/config.json`
+- `logs/<run_id>/history.json`
+- `logs/<run_id>/split.json`
+
+说明：
+
+- `model_last.pt`: 最后一个 epoch 的 checkpoint
+- `model_best.pt`: 验证集最优 checkpoint
+- `metrics.json` 中会记录 `best_val_epoch`
 
 ### 13.1 wandb
 
