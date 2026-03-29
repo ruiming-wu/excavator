@@ -9,3 +9,6 @@ __pycache__/
 data/raw/
 data/aligned/
 *.zip
+
+# training logs
+.logs/
