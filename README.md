@@ -8,11 +8,11 @@
 2. ROS2 话题遥操作与录制
 3. 原始数据回放与对齐
 4. 对齐后多模态策略训练
-5. 离线评估与后续部署准备
+5. 在线仿真评估与后续部署准备
 
 当前默认工作流是：
 
-`仿真 -> teleop -> record -> replay/check -> align -> train`
+`仿真 -> teleop -> record -> replay/check -> align -> train -> eval`
 
 ---
 
@@ -64,7 +64,7 @@ pip install torch torchvision
 - `pyarrow` / `fastparquet`: 用于 parquet 读写
 - `PyYAML`: 用于读取 `src/excavator_policy/config.yaml`
 - `wandb`: 训练日志记录
-- `torchvision`: `ResNet-50` 图像 encoder
+- `torchvision`: `ResNet-18` 图像 encoder
 - `rclpy` / `sensor_msgs_py` 运行时由 Isaac Sim 内置 `isaacsim.ros2.bridge` 提供
 - 如果你只想运行本仓库脚本，不再要求先 `source /opt/ros/jazzy/setup.bash`
 - 只有在你需要系统 `ros2 topic ...` 命令行工具时，才额外 `source /opt/ros/jazzy/setup.bash`
@@ -340,7 +340,7 @@ lidar：
 训练入口：
 
 ```bash
-python -m excavator_policy.train --config src/excavator_policy/config.yaml
+./scripts/train.sh
 ```
 
 ### 11.1 当前训练数据源
@@ -385,32 +385,93 @@ python -m excavator_policy.train --config src/excavator_policy/config.yaml
 
 文件：
 
-- [src/excavator_policy/model.py](src/excavator_policy/model.py)
+- `src/excavator_policy/model.py`
+- `src/excavator_policy/model_small.py`
 
-当前模型是一个紧凑版 diffusion-style policy：
+当前仓库现在同时保留两套 policy：
 
-1. `camera_driver` 编码
-2. `camera_bucket` 编码
-3. 点云 MLP + mean pooling 编码
-4. 当前 command 编码
-5. 条件特征融合
-6. 对未来 `16 x 4` 命令序列进行 denoise 预测
+1. 大模型：`model.py`
+2. 小模型 baseline：`model_small.py`
 
-### 12.1 结构概览
+当前训练默认使用大模型；评估脚本支持自动识别并加载这两类 checkpoint。
 
-- 图像编码器：共享权重的 `ResNet-50`
+### 12.1 大模型结构概览
+
+- 图像编码器：共享权重的 `ResNet-18`
 - 点云编码器：PointNet 风格编码器（逐点 MLP + max pooling）
 - 状态编码器：2 层 MLP
 - 条件向量：直接拼接成 `2048` 维
 - denoiser：MLP
 
-### 12.2 当前不是的东西
+### 12.2 小模型结构概览
 
-当前模型还不是一个大规模 transformer policy，也不是 PointNet++ / 3D sparse conv 模型。它现在是一个正式一些的多模态 diffusion-style baseline：`ResNet-50 + PointNet + state MLP + MLP denoiser`。
+- 图像编码器：3 层小卷积
+- 点云编码器：小 MLP + mean pooling
+- 状态编码器：单层 MLP
+- fusion：1 层 MLP
+- 参数量约 `62 万`
+
+### 12.3 当前训练目标
+
+当前 loss 不是直接监督 `pred_cmd vs true_cmd`，而是 diffusion-style 的噪声预测：
+
+- 输入：双相机 + 点云 + 当前真实 joint state
+- 输出目标：未来 `16 x 4` 命令序列中的噪声
+
+### 12.4 当前不是的东西
+
+当前模型还不是一个大规模 transformer policy，也不是 PointNet++ / 3D sparse conv 模型。它现在是一个正式一些的多模态 diffusion-style baseline：`ResNet-18 + PointNet-style encoder + state MLP + MLP denoiser`。
 
 ---
 
-## 13. 训练输出与日志
+## 13. 在线仿真评估
+
+真实仿真评估入口：
+
+```bash
+./scripts/eval.sh --checkpoint logs/<run_id>/model_best.pt
+```
+
+这个入口现在是一个**在线人工闭环评估器**，不是全自动 benchmark。它会：
+
+- 连接当前正在运行的 Isaac Sim ROS 话题
+- 等待你按 `m` 开始当前 episode
+- 读取真实双相机、真实点云、真实 joint state
+- 在线发布 `/excavator/cmd_joint`
+- 再按一次 `m` 结束当前 episode
+- 等待你按 `s` / `f` 标注成功或失败
+- 标注后自动 reset 环境并等待下一次 `m`
+
+输出默认写到：
+
+- `logs/eval_<timestamp>/eval_metrics.json`
+
+说明：
+
+- 旧的 `deploy_sim.py` 是离线 proxy，只适合做 very quick sanity check
+- 真正基于随机仿真环境的评估现在统一走 `eval.py / eval.sh`
+- 评估 report 现在会在每次 `s / f` 标注后立刻落盘
+
+### 13.1 当前 eval 控制键
+
+- `m`: 开始 / 结束当前 episode
+- `s`: 标记上一条 episode 成功
+- `f`: 标记上一条 episode 失败
+- `r`: 手动 reset 环境
+- `q`: 退出评估
+
+### 13.2 当前评估已知问题
+
+当前在线 eval 仍在迭代中，尤其是“模型输出如何安全地解码成在线 joint command”这部分还没有完全稳定。到 2026-03-31 的当前状态：
+
+- recorder / align / train 链路已经稳定可用
+- eval 已经能连接真实 sim 并人工标注 episode
+- 但部分 checkpoint 在线 rollout 仍可能出现不合理动作
+- 当前正在收敛的问题是：如何让 diffusion-style 输出在在线闭环里更保守、更稳定
+
+---
+
+## 14. 训练输出与日志
 
 现在训练输出写到：
 
@@ -499,7 +560,13 @@ python -m excavator_policy.train --config src/excavator_policy/config.yaml
 ### Step 9: 训练
 
 ```bash
-python -m excavator_policy.train --config src/excavator_policy/config.yaml
+./scripts/train.sh
+```
+
+### Step 10: 在线评估
+
+```bash
+./scripts/eval.sh --checkpoint logs/<run_id>/model_best.pt
 ```
 
 ---
@@ -512,12 +579,20 @@ python -m excavator_policy.train --config src/excavator_policy/config.yaml
 - 稳定的 teleop 与 recorder 链路
 - raw 数据与 aligned 数据两层表示
 - replay / check / align 工具链
-- 可训练的多模态 diffusion-style baseline
+- 可训练的大/小两套 diffusion-style baseline
 - wandb + 本地 `logs/` 训练日志落盘
+- 可交互的在线 sim eval
+
+但也要明确当前边界：
+
+- 数据链路已经基本打通
+- 训练链路已经稳定
+- 在线评估链路已经能跑
+- **在线动作解码还没有完全调稳，当前仍属于继续迭代阶段**
 
 如果下一步继续推进，最值得做的是：
 
-1. run-level train/val split
-2. 更强的点云编码器
-3. 更真实的 diffusion sampling / inference 过程
-4. sim 内在线部署验证闭环
+1. 把 eval 的在线解码继续收敛稳定
+2. 对比小模型和大模型在真实 sim 里的表现
+3. 更真实、更稳的 diffusion sampling / inference 过程
+4. 在在线 eval 稳定后再继续迭代更强模型

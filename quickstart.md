@@ -64,7 +64,7 @@ source /opt/ros/jazzy/setup.bash
 ## 9. 训练
 
 ```bash
-python -m excavator_policy.train --config src/excavator_policy/config.yaml
+./scripts/train.sh
 ```
 
 训练输出在：
@@ -72,5 +72,31 @@ python -m excavator_policy.train --config src/excavator_policy/config.yaml
 - `logs/<run_id>/model_last.pt`
 - `logs/<run_id>/model_best.pt`
 - `logs/<run_id>/metrics.json`
+
+## 10. 在线仿真评估
+
+先保证 `./scripts/sim.sh` 正在运行，再执行：
+
+```bash
+./scripts/eval.sh --checkpoint logs/<run_id>/model_best.pt
+```
+
+当前评估交互：
+
+- `m`: 开始 / 结束当前 episode
+- `s`: 标记成功
+- `f`: 标记失败
+- `r`: 手动 reset 环境
+- `q`: 退出
+
+评估输出在：
+
+- `logs/eval_<timestamp>/eval_metrics.json`
+
+说明：
+
+- 每次按 `s` / `f` 后都会立即更新 `eval_metrics.json`
+- 当前在线 eval 已能真实连 sim，但动作解码仍在继续调稳
+- 如果你要先做 baseline 对比，建议优先评估 `model_best.pt`
 
 更完整说明见 `README.md`。

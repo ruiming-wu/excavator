@@ -1,0 +1,254 @@
+_config_path:
+    value: /home/ray/codes/excavator/src/excavator_policy/config.yaml
+_wandb:
+    value:
+        cli_version: 0.25.1
+        e:
+            scau96z4g9l41rnpjeholosx78y9cu1g:
+                args:
+                    - --config
+                    - src/excavator_policy/config.yaml
+                cpu_count: 20
+                cpu_count_logical: 20
+                cudaVersion: "13.0"
+                disk:
+                    /:
+                        total: "620697174016"
+                        used: "91357904896"
+                email: wu_ruiming@163.com
+                executable: /home/ray/miniconda3/envs/isaac/bin/python
+                git:
+                    commit: 22e83bfe342ae0bb69460e5ddfa232add1db5459
+                    remote: git@github.com:ruiming-wu/excavator.git
+                gpu: NVIDIA GeForce RTX 4080 SUPER
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 10240
+                      memoryTotal: "17171480576"
+                      name: NVIDIA GeForce RTX 4080 SUPER
+                      uuid: GPU-95d9177d-b377-51de-b515-bb99f5364ebf
+                host: ray-ubuntu24
+                memory:
+                    total: "66913546240"
+                os: Linux-6.17.0-14-generic-x86_64-with-glibc2.39
+                program: -m excavator_policy.train
+                python: CPython 3.11.14
+                root: logs/20260329_101940
+                startedAt: "2026-03-29T08:19:40.906517Z"
+                writerId: scau96z4g9l41rnpjeholosx78y9cu1g
+        m: []
+        python_version: 3.11.14
+        t:
+            "1":
+                - 1
+                - 41
+            "2":
+                - 1
+                - 41
+            "3":
+                - 13
+                - 16
+            "4": 3.11.14
+            "5": 0.25.1
+            "12": 0.25.1
+            "13": linux-x86_64
+config_path:
+    value: /home/ray/codes/excavator/src/excavator_policy/config.yaml
+data:
+    value:
+        aligned_root: data/aligned
+        command_source: action_position
+        future_start: 1
+        horizon: 16
+        image_channels: 3
+        image_height: 160
+        image_width: 240
+        joint_order:
+            - swing_joint
+            - boom_joint
+            - arm_joint
+            - bucket_joint
+        observation_state_key: current_state
+        point_count: 4096
+        point_dim: 3
+        raw_root: data/raw
+        run_glob: run_*
+        seed: 42
+        target_command_key: future_cmd_seq
+        train_ratio: 0.9
+device:
+    value: cuda
+model:
+    value:
+        hidden_dim: 2048
+        image_out_dim: 512
+        image_pretrained: false
+        point_hidden_dims:
+            - 64
+            - 128
+            - 256
+            - 512
+        point_out_dim: 512
+        state_hidden_dims:
+            - 256
+            - 512
+        state_out_dim: 512
+        time_dim: 128
+num_all_runs:
+    value: 100
+num_train_runs:
+    value: 90
+num_train_samples:
+    value: 48741
+num_val_runs:
+    value: 10
+num_val_samples:
+    value: 5580
+parameter_counts:
+    value:
+        denoise:
+            total: 8917056
+            trainable: 8917056
+        image_encoder:
+            total: 11439168
+            trainable: 11439168
+        point_encoder:
+            total: 435840
+            trainable: 435840
+        policy_total:
+            total: 20941696
+            trainable: 20941696
+        state_encoder:
+            total: 132864
+            trainable: 132864
+        time_mlp:
+            total: 16768
+            trainable: 16768
+seed:
+    value: 42
+train_runs:
+    value:
+        - run_008
+        - run_009
+        - run_010
+        - run_012
+        - run_013
+        - run_014
+        - run_015
+        - run_016
+        - run_017
+        - run_019
+        - run_020
+        - run_021
+        - run_025
+        - run_026
+        - run_031
+        - run_032
+        - run_033
+        - run_034
+        - run_036
+        - run_037
+        - run_038
+        - run_039
+        - run_044
+        - run_046
+        - run_049
+        - run_051
+        - run_055
+        - run_056
+        - run_057
+        - run_061
+        - run_062
+        - run_063
+        - run_065
+        - run_066
+        - run_067
+        - run_068
+        - run_069
+        - run_070
+        - run_071
+        - run_072
+        - run_073
+        - run_074
+        - run_075
+        - run_076
+        - run_077
+        - run_078
+        - run_081
+        - run_083
+        - run_084
+        - run_085
+        - run_086
+        - run_087
+        - run_088
+        - run_089
+        - run_091
+        - run_093
+        - run_094
+        - run_095
+        - run_096
+        - run_099
+        - run_100
+        - run_101
+        - run_102
+        - run_105
+        - run_106
+        - run_107
+        - run_108
+        - run_109
+        - run_110
+        - run_111
+        - run_112
+        - run_113
+        - run_115
+        - run_116
+        - run_119
+        - run_120
+        - run_122
+        - run_123
+        - run_125
+        - run_127
+        - run_128
+        - run_129
+        - run_130
+        - run_131
+        - run_132
+        - run_134
+        - run_135
+        - run_136
+        - run_137
+        - run_138
+training:
+    value:
+        batch_size: 32
+        device: auto
+        epochs: 500
+        grad_clip_norm: 1
+        log_interval: 100
+        lr: 0.0001
+        num_workers: 2
+        output_dir: logs
+        persistent_workers: true
+        pin_memory: true
+        run_name: ""
+        save_every_epoch: false
+        save_interval_epochs: 25
+        wandb:
+            enabled: true
+            mode: online
+            name: excavator_policy
+            project: excavator_policy
+        weight_decay: 0.0001
+val_runs:
+    value:
+        - run_011
+        - run_022
+        - run_023
+        - run_030
+        - run_047
+        - run_052
+        - run_059
+        - run_117
+        - run_124
+        - run_133

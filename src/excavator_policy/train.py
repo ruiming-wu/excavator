@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import subprocess
+import time
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -140,6 +142,65 @@ def _save_checkpoint(path: Path, model: DiffusionPolicy, joint_dim: int, horizon
     )
 
 
+def _build_scheduler(optim: torch.optim.Optimizer, train_cfg: dict):
+    sched_cfg = train_cfg.get("scheduler", {}) or {}
+    if not bool(sched_cfg.get("enabled", False)):
+        return None
+    sched_type = str(sched_cfg.get("type", "reduce_on_plateau")).lower()
+    if sched_type != "reduce_on_plateau":
+        raise ValueError(f"Unsupported scheduler type: {sched_type}")
+    return torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optim,
+        mode=str(sched_cfg.get("mode", "min")),
+        factor=float(sched_cfg.get("factor", 0.5)),
+        patience=int(sched_cfg.get("patience", 15)),
+        min_lr=float(sched_cfg.get("min_lr", 1e-6)),
+    )
+
+
+def _format_elapsed(seconds: float) -> str:
+    total = int(seconds)
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def _query_gpu_metrics(device: str) -> dict[str, float]:
+    if not device.startswith("cuda"):
+        return {}
+    try:
+        query = (
+            "temperature.gpu,"
+            "utilization.gpu,"
+            "clocks.mem,"
+            "clocks.sm"
+        )
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                f"--query-gpu={query}",
+                "--format=csv,noheader,nounits",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+        first_line = result.stdout.strip().splitlines()[0]
+        values = [float(x.strip()) for x in first_line.split(",")]
+        if len(values) != 4:
+            return {}
+        return {
+            "system/gpu_temp_c": values[0],
+            "system/gpu_util_percent": values[1],
+            "system/gpu_mem_clock_mhz": values[2],
+            "system/gpu_sm_clock_mhz": values[3],
+        }
+    except Exception:
+        return {}
+
+
 def main():
     args = parse_args()
     cfg = load_config(args.config)
@@ -191,6 +252,7 @@ def main():
         lr=float(train_cfg.get("lr", 1e-4)),
         weight_decay=float(train_cfg.get("weight_decay", 1e-4)),
     )
+    scheduler = _build_scheduler(optim, train_cfg)
 
     param_stats = _model_stats(model)
     manifest = {
@@ -205,6 +267,7 @@ def main():
         "num_train_samples": len(train_dataset),
         "num_val_samples": 0 if val_dataset is None else len(val_dataset),
         "parameter_counts": param_stats,
+        "scheduler": train_cfg.get("scheduler", {}),
     }
 
     _save_json(out_dir / "config.json", cfg)
@@ -235,6 +298,7 @@ def main():
     final_val_loss = None
     history = []
     global_step = 0
+    train_start_time = time.perf_counter()
 
     for epoch in range(epochs):
         model.train()
@@ -251,15 +315,17 @@ def main():
             optim.step()
             total += float(loss.item())
             if step % log_interval == 0 or step == len(loader):
-                print(f"epoch={epoch + 1}/{epochs} step={step}/{len(loader)} global_step={global_step} train_loss={loss.item():.6f}")
+                elapsed = _format_elapsed(time.perf_counter() - train_start_time)
+                print(
+                    f"epoch={epoch + 1}/{epochs} step={step}/{len(loader)} "
+                    f"train_loss={loss.item():.6f} elapsed={elapsed}"
+                )
                 if wandb_run is not None:
-                    wandb_run.log(
-                        {
-                            "train/loss_step": float(loss.item()),
-                            "train/epoch": epoch + 1,
-                            "train/global_step": global_step,
-                        }
-                    )
+                    step_log = {
+                        "train/loss_step": float(loss.item()),
+                    }
+                    step_log.update(_query_gpu_metrics(device))
+                    wandb_run.log(step_log)
         final_train_loss = total / max(len(loader), 1)
 
         if val_loader is not None:
@@ -276,9 +342,15 @@ def main():
                 best_val_loss = final_val_loss
                 best_val_epoch = epoch + 1
                 _save_checkpoint(out_dir / "model_best.pt", model, joint_dim, horizon, cfg, epoch + 1)
+            if scheduler is not None:
+                scheduler.step(final_val_loss)
         else:
             final_val_loss = None
             print(f"epoch={epoch + 1}/{epochs} mean_train_loss={final_train_loss:.6f}")
+            if scheduler is not None:
+                scheduler.step(final_train_loss)
+
+        current_lr = float(optim.param_groups[0]["lr"])
 
         epoch_metrics = {
             "epoch": epoch + 1,
@@ -286,12 +358,14 @@ def main():
             "val_loss": final_val_loss,
             "best_val_loss": best_val_loss,
             "best_val_epoch": best_val_epoch,
+            "lr": current_lr,
         }
         history.append(epoch_metrics)
         if wandb_run is not None:
             log_payload = {
                 "train/loss_epoch": final_train_loss,
                 "train/epoch": epoch + 1,
+                "train/lr": current_lr,
             }
             if final_val_loss is not None:
                 log_payload["val/loss_epoch"] = final_val_loss
@@ -321,6 +395,7 @@ def main():
         "parameter_counts": param_stats,
         "save_interval_epochs": save_interval_epochs,
         "epochs": epochs,
+        "last_lr": float(optim.param_groups[0]["lr"]),
     }
     _save_json(out_dir / "metrics.json", metrics)
     _save_json(out_dir / "history.json", history)

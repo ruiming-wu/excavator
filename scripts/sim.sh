@@ -72,7 +72,7 @@ _setup_sim_env
 
 cd "${EXCAVATOR_ROOT}"
 PYTHON_BIN="${SIM_PYTHON_BIN:-${EXCAVATOR_PYTHON_BIN}}"
-CMD=("${PYTHON_BIN}" -u -m excavator_sim.sim --headless "$@")
+CMD=("${PYTHON_BIN}" -u -m excavator_sim.sim "$@")
 
 echo "[sim] starting: ${CMD[*]}"
 "${CMD[@]}" &

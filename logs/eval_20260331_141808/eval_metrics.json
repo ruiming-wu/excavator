@@ -1,0 +1,48 @@
+{
+  "checkpoint": "/home/ray/codes/excavator/logs/20260328_130956/model.pt",
+  "device": "cuda",
+  "episodes_requested": 5,
+  "episodes_completed": 1,
+  "max_seconds": 60.0,
+  "control_hz": 15.0,
+  "sample_steps": 8,
+  "command_chunk": 1,
+  "user_success_rate": 0.0,
+  "avg_final_stones_in_truck": 0.0,
+  "episodes": [
+    {
+      "episode_index": 0,
+      "duration_sec": 60.049095505150035,
+      "control_steps": 897,
+      "control_hz_effective": 14.93777703817487,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.00638134591281414,
+      "last_command": [
+        0.08855205774307251,
+        -0.7900000214576721,
+        0.12772440910339355,
+        -1.5700000524520874
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.270738164324414,
+          2.061822197951701
+        ],
+        "pile_center_xy": [
+          3.175700174326912,
+          0.3414599798826796
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "user_result": "fail",
+      "user_success": false
+    }
+  ]
+}
