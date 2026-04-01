@@ -1,0 +1,1752 @@
+{
+  "checkpoint": "/home/ray/codes/excavator/logs/20260401_072749/model_best.pt",
+  "device": "cuda",
+  "episodes_requested": 50,
+  "episodes_completed": 50,
+  "max_seconds": 60.0,
+  "control_hz": 20.0,
+  "sample_steps": 10,
+  "euler_step_size": 0.1,
+  "success_hold_seconds": 5.0,
+  "user_success_rate": 0.7,
+  "avg_final_stones_in_truck": 6.46,
+  "episodes": [
+    {
+      "episode_index": 0,
+      "duration_sec": 60.11391303804703,
+      "control_steps": 1195,
+      "control_hz_effective": 19.878925520015073,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 0,
+      "success_threshold_stones": 0,
+      "auto_success": false,
+      "action_smoothness": 0.011696611531078815,
+      "last_command": [
+        -1.0267847776412964,
+        0.04389678314328194,
+        0.21862256526947021,
+        -1.4528988599777222
+      ],
+      "episode_meta": {},
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_001.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 1,
+      "duration_sec": 60.17444755486213,
+      "control_steps": 1197,
+      "control_hz_effective": 19.892164342824643,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.01028196606785059,
+      "last_command": [
+        1.5766634941101074,
+        -0.09287728369235992,
+        0.24185682833194733,
+        -1.1982858180999756
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.7954004363336207,
+          2.9347574812256
+        ],
+        "pile_center_xy": [
+          2.934416116661058,
+          0.9847792686380854
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_002.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 2,
+      "duration_sec": 35.16064096009359,
+      "control_steps": 699,
+      "control_hz_effective": 19.88018366312909,
+      "final_stones_in_truck": 27,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": true,
+      "action_smoothness": 0.015493923798203468,
+      "last_command": [
+        1.0218753814697266,
+        0.12099742144346237,
+        0.008066222071647644,
+        -1.0214791297912598
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.9738684834837374,
+          2.8121609493116817
+        ],
+        "pile_center_xy": [
+          2.942315800669903,
+          -0.004684932959510446
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_003.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 3,
+      "duration_sec": 33.46292454586364,
+      "control_steps": 664,
+      "control_hz_effective": 19.842856206125507,
+      "final_stones_in_truck": 21,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.014171344228088856,
+      "last_command": [
+        -0.8505662679672241,
+        0.06256966292858124,
+        0.25588199496269226,
+        -1.269690990447998
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.027081467736688,
+          -2.345393922651981
+        ],
+        "pile_center_xy": [
+          3.3410997322334266,
+          0.07217596327875264
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_004.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 4,
+      "duration_sec": 60.080024984898046,
+      "control_steps": 1197,
+      "control_hz_effective": 19.92342713407464,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.009907969273626804,
+      "last_command": [
+        1.1106362342834473,
+        -0.020995069295167923,
+        0.1587739735841751,
+        -1.1410695314407349
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.6287247588417593,
+          2.3303350143268706
+        ],
+        "pile_center_xy": [
+          2.9463752686430946,
+          0.8896927791945708
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_005.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 5,
+      "duration_sec": 35.21007327409461,
+      "control_steps": 699,
+      "control_hz_effective": 19.852273369572362,
+      "final_stones_in_truck": 1,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.016948867589235306,
+      "last_command": [
+        -0.8606014847755432,
+        0.08826499432325363,
+        0.29182785749435425,
+        -1.2798950672149658
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.1604942840861672,
+          -2.435199155637244
+        ],
+        "pile_center_xy": [
+          3.328317019003369,
+          -0.9106859391005735
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_006.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 6,
+      "duration_sec": 34.44081235001795,
+      "control_steps": 686,
+      "control_hz_effective": 19.918229367770486,
+      "final_stones_in_truck": 8,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.0164314117282629,
+      "last_command": [
+        1.24493408203125,
+        -0.03187303617596626,
+        0.1660863757133484,
+        -1.0807212591171265
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.970556477915058,
+          2.715790000806148
+        ],
+        "pile_center_xy": [
+          2.599124432591587,
+          -0.313699995515216
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_007.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 7,
+      "duration_sec": 60.08484757808037,
+      "control_steps": 1197,
+      "control_hz_effective": 19.92182801902753,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.014087889343500137,
+      "last_command": [
+        -0.7955881953239441,
+        0.02869844064116478,
+        0.3273986279964447,
+        -1.1949563026428223
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.8141927453720359,
+          -2.360448136552093
+        ],
+        "pile_center_xy": [
+          3.4134668747135333,
+          0.7243944842721968
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_008.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 8,
+      "duration_sec": 60.1805468800012,
+      "control_steps": 1197,
+      "control_hz_effective": 19.890148263138816,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.012174855917692184,
+      "last_command": [
+        -0.8161904811859131,
+        0.07118864357471466,
+        0.33586132526397705,
+        -1.2244296073913574
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.4154508628071614,
+          -2.492706773777857
+        ],
+        "pile_center_xy": [
+          3.478603426532029,
+          0.6955669600664922
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_009.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 9,
+      "duration_sec": 36.21953429095447,
+      "control_steps": 720,
+      "control_hz_effective": 19.878775751675363,
+      "final_stones_in_truck": 3,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.015858791768550873,
+      "last_command": [
+        -0.982435941696167,
+        -0.07941056042909622,
+        0.22307634353637695,
+        -1.3883229494094849
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.15462759715142171,
+          -2.1258804779295946
+        ],
+        "pile_center_xy": [
+          3.10666415914209,
+          0.3717990844650434
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_010.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 10,
+      "duration_sec": 36.26808025292121,
+      "control_steps": 720,
+      "control_hz_effective": 19.852167387382124,
+      "final_stones_in_truck": 1,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.018722981214523315,
+      "last_command": [
+        -0.7556633353233337,
+        0.1421031802892685,
+        0.3465457856655121,
+        -1.1352753639221191
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.1258690212650961,
+          -2.1161084995617756
+        ],
+        "pile_center_xy": [
+          3.339796277262875,
+          0.5477226380158127
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_011.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 11,
+      "duration_sec": 34.57260353513993,
+      "control_steps": 686,
+      "control_hz_effective": 19.842300835190006,
+      "final_stones_in_truck": 29,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": true,
+      "action_smoothness": 0.016670599579811096,
+      "last_command": [
+        1.5724990367889404,
+        -0.057878684252500534,
+        0.21296429634094238,
+        -1.1529213190078735
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.1681313057415703,
+          2.498833932295801
+        ],
+        "pile_center_xy": [
+          3.060483626389124,
+          -0.33997795006692133
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_012.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 12,
+      "duration_sec": 33.053367614978924,
+      "control_steps": 657,
+      "control_hz_effective": 19.87694590315405,
+      "final_stones_in_truck": 21,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.016224496066570282,
+      "last_command": [
+        -0.978605329990387,
+        -0.0315357968211174,
+        0.18671149015426636,
+        -1.4348170757293701
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.39969047747089803,
+          -2.405504860348274
+        ],
+        "pile_center_xy": [
+          2.9090221558526936,
+          -0.577937039555648
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_013.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 13,
+      "duration_sec": 34.113119550049305,
+      "control_steps": 678,
+      "control_hz_effective": 19.875051268919204,
+      "final_stones_in_truck": 5,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.015573333948850632,
+      "last_command": [
+        -1.0607856512069702,
+        -0.01581891067326069,
+        0.155532106757164,
+        -1.45389723777771
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.08138159038667991,
+          -2.8285747023687744
+        ],
+        "pile_center_xy": [
+          2.8913420308591458,
+          -0.8192468336417593
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_014.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 14,
+      "duration_sec": 35.46341912308708,
+      "control_steps": 706,
+      "control_hz_effective": 19.907837920241203,
+      "final_stones_in_truck": 2,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.014415418729186058,
+      "last_command": [
+        -0.8149800896644592,
+        0.14572827517986298,
+        0.2962122857570648,
+        -1.1482264995574951
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.2869118155746364,
+          -2.794200111221164
+        ],
+        "pile_center_xy": [
+          3.0730810692505144,
+          0.27778129023043996
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_015.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 15,
+      "duration_sec": 35.85932002798654,
+      "control_steps": 713,
+      "control_hz_effective": 19.883254881674734,
+      "final_stones_in_truck": 15,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.016589192673563957,
+      "last_command": [
+        -0.9727382063865662,
+        -0.0591319240629673,
+        0.19404326379299164,
+        -1.3510453701019287
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.4531992462621315,
+          -2.5690574143259717
+        ],
+        "pile_center_xy": [
+          2.59658592433788,
+          -0.30578658594041297
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_016.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 16,
+      "duration_sec": 35.160944752860814,
+      "control_steps": 699,
+      "control_hz_effective": 19.880011897095766,
+      "final_stones_in_truck": 1,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.0151432566344738,
+      "last_command": [
+        -0.7832522392272949,
+        0.1624845266342163,
+        0.29122915863990784,
+        -1.1199026107788086
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.6154335120745713,
+          -2.7654612193565518
+        ],
+        "pile_center_xy": [
+          2.9166940867694566,
+          -0.863003793571107
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_017.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 17,
+      "duration_sec": 34.507096719928086,
+      "control_steps": 685,
+      "control_hz_effective": 19.850989075079383,
+      "final_stones_in_truck": 1,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.014511552639305592,
+      "last_command": [
+        1.189007043838501,
+        -0.015864714980125427,
+        0.13504426181316376,
+        -1.0687172412872314
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.0699028136904432,
+          2.82441706436179
+        ],
+        "pile_center_xy": [
+          2.975544067878532,
+          0.22799687530531743
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_018.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 18,
+      "duration_sec": 60.18386732810177,
+      "control_steps": 1197,
+      "control_hz_effective": 19.889050889241915,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.011641457676887512,
+      "last_command": [
+        1.5145882368087769,
+        -0.077679343521595,
+        0.2398250252008438,
+        -1.1657884120941162
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.9880954238334281,
+          2.690971386066806
+        ],
+        "pile_center_xy": [
+          2.6408217871092745,
+          0.8982937686521808
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_019.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 19,
+      "duration_sec": 60.17788505600765,
+      "control_steps": 1197,
+      "control_hz_effective": 19.891028056003467,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.01285862922668457,
+      "last_command": [
+        1.739537239074707,
+        -0.16225416958332062,
+        0.2794879972934723,
+        -1.2023303508758545
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.46618407659375016,
+          2.476085671406608
+        ],
+        "pile_center_xy": [
+          2.788441353216266,
+          -0.9597632552264568
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_020.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 20,
+      "duration_sec": 35.4729629678186,
+      "control_steps": 706,
+      "control_hz_effective": 19.9024818039725,
+      "final_stones_in_truck": 2,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.015600895509123802,
+      "last_command": [
+        -0.7093908786773682,
+        0.20191174745559692,
+        0.353961706161499,
+        -1.0236376523971558
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.7020581352382187,
+          -2.4375933315154663
+        ],
+        "pile_center_xy": [
+          2.790578071092029,
+          0.3699078555638309
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_021.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 21,
+      "duration_sec": 34.46119931596331,
+      "control_steps": 685,
+      "control_hz_effective": 19.8774277621467,
+      "final_stones_in_truck": 5,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.018408019095659256,
+      "last_command": [
+        1.4381136894226074,
+        -0.04260963946580887,
+        0.20007513463497162,
+        -1.1232935190200806
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.6013980496080853,
+          2.6036801824429525
+        ],
+        "pile_center_xy": [
+          2.8257133234810015,
+          -0.14403542139326286
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_022.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 22,
+      "duration_sec": 34.90688045998104,
+      "control_steps": 693,
+      "control_hz_effective": 19.852819583648824,
+      "final_stones_in_truck": 9,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.016555069014430046,
+      "last_command": [
+        1.4356757402420044,
+        -0.05457766354084015,
+        0.2076222449541092,
+        -1.105392575263977
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.5098251116540651,
+          2.3997734964544777
+        ],
+        "pile_center_xy": [
+          2.8839656489134207,
+          -0.32559372504912787
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_023.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 23,
+      "duration_sec": 35.21043294016272,
+      "control_steps": 699,
+      "control_hz_effective": 19.852070583394813,
+      "final_stones_in_truck": 2,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.015675129368901253,
+      "last_command": [
+        -0.8675622344017029,
+        0.13121122121810913,
+        0.23783335089683533,
+        -1.2353925704956055
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.277339163319088,
+          -2.90500587002854
+        ],
+        "pile_center_xy": [
+          2.79818541126634,
+          0.3537562299408403
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_024.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 24,
+      "duration_sec": 34.15840049483813,
+      "control_steps": 679,
+      "control_hz_effective": 19.8779799453024,
+      "final_stones_in_truck": 21,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.014535244554281235,
+      "last_command": [
+        1.0829341411590576,
+        0.04298880696296692,
+        0.09600235521793365,
+        -1.0714199542999268
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.536358316500007,
+          2.6069744017933285
+        ],
+        "pile_center_xy": [
+          3.2720278816880897,
+          -0.08030111937151929
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_025.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 25,
+      "duration_sec": 34.86890169978142,
+      "control_steps": 693,
+      "control_hz_effective": 19.874443019934414,
+      "final_stones_in_truck": 6,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.01604972407221794,
+      "last_command": [
+        1.5717926025390625,
+        -0.0779905691742897,
+        0.2226550430059433,
+        -1.1374224424362183
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.05487273362743106,
+          2.355240768292943
+        ],
+        "pile_center_xy": [
+          2.8734045221518465,
+          -0.09259526291411602
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_026.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 26,
+      "duration_sec": 35.512798885814846,
+      "control_steps": 707,
+      "control_hz_effective": 19.908315373092222,
+      "final_stones_in_truck": 12,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.01585419476032257,
+      "last_command": [
+        -1.0115491151809692,
+        0.005239401012659073,
+        0.1887606531381607,
+        -1.4156073331832886
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.30223569833950226,
+          -2.7088142516904847
+        ],
+        "pile_center_xy": [
+          3.4102024201699415,
+          0.21789953601163226
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_027.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 27,
+      "duration_sec": 33.80540579603985,
+      "control_steps": 671,
+      "control_hz_effective": 19.848896476746468,
+      "final_stones_in_truck": 1,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.01587102934718132,
+      "last_command": [
+        1.1779290437698364,
+        -0.04330143332481384,
+        0.18252447247505188,
+        -1.043288230895996
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.8796436755867267,
+          2.263019219541854
+        ],
+        "pile_center_xy": [
+          2.9277965186214887,
+          0.541244649138499
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_028.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 28,
+      "duration_sec": 33.518345372984186,
+      "control_steps": 664,
+      "control_hz_effective": 19.81004708350504,
+      "final_stones_in_truck": 1,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.018577419221401215,
+      "last_command": [
+        0.936593234539032,
+        0.07226160168647766,
+        0.10925112664699554,
+        -1.0024493932724
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.606050476451113,
+          2.190352351393811
+        ],
+        "pile_center_xy": [
+          2.7597018370610513,
+          -0.8847391968064284
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_029.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 29,
+      "duration_sec": 60.08515654108487,
+      "control_steps": 1197,
+      "control_hz_effective": 19.9217255792871,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.010715344920754433,
+      "last_command": [
+        1.2381247282028198,
+        -0.04946266487240791,
+        0.16365788877010345,
+        -1.1257812976837158
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.1449906578037727,
+          2.2845179213513362
+        ],
+        "pile_center_xy": [
+          2.8458282287791317,
+          0.8197360675681262
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_030.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 30,
+      "duration_sec": 34.812661804957315,
+      "control_steps": 691,
+      "control_hz_effective": 19.84909984394246,
+      "final_stones_in_truck": 23,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.017226550728082657,
+      "last_command": [
+        1.112915277481079,
+        -0.016329290345311165,
+        0.16283656656742096,
+        -1.000592589378357
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.213212650903745,
+          2.278199773823943
+        ],
+        "pile_center_xy": [
+          2.5212557912459395,
+          -0.2280381138961245
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_031.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 31,
+      "duration_sec": 33.76081601600163,
+      "control_steps": 671,
+      "control_hz_effective": 19.875112013938462,
+      "final_stones_in_truck": 12,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.01636666990816593,
+      "last_command": [
+        -0.9747720956802368,
+        -0.012394709512591362,
+        0.18307140469551086,
+        -1.439205527305603
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.45200459039415675,
+          -2.366904088364759
+        ],
+        "pile_center_xy": [
+          2.890703749145294,
+          -0.7570613266900523
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_032.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 32,
+      "duration_sec": 60.091991326073185,
+      "control_steps": 1197,
+      "control_hz_effective": 19.919459708113155,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.010483203455805779,
+      "last_command": [
+        1.3230092525482178,
+        -0.06482653319835663,
+        0.16363951563835144,
+        -1.119780421257019
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.9031832507819277,
+          2.1111066614338654
+        ],
+        "pile_center_xy": [
+          2.545505005905358,
+          0.26752003386781986
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_033.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 33,
+      "duration_sec": 34.109785192180425,
+      "control_steps": 678,
+      "control_hz_effective": 19.87699412881174,
+      "final_stones_in_truck": 16,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.014774122275412083,
+      "last_command": [
+        -0.8687436580657959,
+        0.10499484091997147,
+        0.2546508014202118,
+        -1.2364227771759033
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.1892385333954993,
+          -2.8824599523152017
+        ],
+        "pile_center_xy": [
+          3.0437440959028352,
+          -0.5556904001368648
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_034.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 34,
+      "duration_sec": 60.22296388098039,
+      "control_steps": 1197,
+      "control_hz_effective": 19.876138981894854,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.011300012469291687,
+      "last_command": [
+        -1.0758274793624878,
+        0.02098052389919758,
+        0.19263289868831635,
+        -1.4815492630004883
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.1318195628068437,
+          -2.4988838453684052
+        ],
+        "pile_center_xy": [
+          3.4718165102517875,
+          0.7320513419173309
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_035.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 35,
+      "duration_sec": 60.12994872312993,
+      "control_steps": 1197,
+      "control_hz_effective": 19.906885427619784,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.011093242093920708,
+      "last_command": [
+        -0.9061006903648376,
+        0.06176457554101944,
+        0.2844291627407074,
+        -1.3049461841583252
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.3217389646374562,
+          -2.917674057187278
+        ],
+        "pile_center_xy": [
+          2.960272818396871,
+          0.9422873754670242
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_036.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 36,
+      "duration_sec": 35.46210664208047,
+      "control_steps": 706,
+      "control_hz_effective": 19.908574725288254,
+      "final_stones_in_truck": 10,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.014974572695791721,
+      "last_command": [
+        1.3519840240478516,
+        -0.06245267391204834,
+        0.19875411689281464,
+        -1.0439249277114868
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.3101469557512653,
+          2.0570751917995853
+        ],
+        "pile_center_xy": [
+          3.09128193929708,
+          0.09495304476220978
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_037.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 37,
+      "duration_sec": 60.08345199585892,
+      "control_steps": 1197,
+      "control_hz_effective": 19.92229075124545,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.009990086778998375,
+      "last_command": [
+        1.1170886754989624,
+        -0.028170650824904442,
+        0.15975706279277802,
+        -1.1257458925247192
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.5562526832485915,
+          2.18170042974965
+        ],
+        "pile_center_xy": [
+          2.943449963723701,
+          0.4073589479063824
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_038.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 38,
+      "duration_sec": 35.61595621705055,
+      "control_steps": 707,
+      "control_hz_effective": 19.850653333337583,
+      "final_stones_in_truck": 1,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.015527503564953804,
+      "last_command": [
+        -0.8395586013793945,
+        0.14554041624069214,
+        0.2682951092720032,
+        -1.1867073774337769
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.5574561374837732,
+          -2.9413675755622823
+        ],
+        "pile_center_xy": [
+          2.6953600917032543,
+          -0.6755850809635477
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_039.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 39,
+      "duration_sec": 60.18015824095346,
+      "control_steps": 1197,
+      "control_hz_effective": 19.890276712257368,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.01037526037544012,
+      "last_command": [
+        -1.0549588203430176,
+        0.01985112391412258,
+        0.19929197430610657,
+        -1.4628639221191406
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.24776011141484067,
+          -2.6884768191710147
+        ],
+        "pile_center_xy": [
+          2.8943251845671365,
+          0.9726408054188471
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_040.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 40,
+      "duration_sec": 6.082542108139023,
+      "control_steps": 118,
+      "control_hz_effective": 19.399783495473827,
+      "final_stones_in_truck": 1,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.0073897154070436954,
+      "last_command": [
+        -0.011211063712835312,
+        0.44274064898490906,
+        -0.7413957118988037,
+        0.136744886636734
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.4016922492263546,
+          2.074976318015839
+        ],
+        "pile_center_xy": [
+          2.921174354174351,
+          -0.6183501951291481
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_041.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 41,
+      "duration_sec": 33.4105765868444,
+      "control_steps": 664,
+      "control_hz_effective": 19.873946152173072,
+      "final_stones_in_truck": 1,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.01834079995751381,
+      "last_command": [
+        1.1542363166809082,
+        -0.018436454236507416,
+        0.15520505607128143,
+        -1.0558973550796509
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.1077558692728255,
+          2.539526593130107
+        ],
+        "pile_center_xy": [
+          2.8144343134556977,
+          0.31724071696718514
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_042.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 42,
+      "duration_sec": 33.05484627792612,
+      "control_steps": 657,
+      "control_hz_effective": 19.876056735400454,
+      "final_stones_in_truck": 3,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.018265187740325928,
+      "last_command": [
+        1.0938512086868286,
+        0.02787233516573906,
+        0.11734601855278015,
+        -1.0736188888549805
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.451849826621316,
+          2.7052999991541165
+        ],
+        "pile_center_xy": [
+          3.3797450774904254,
+          0.5332394929671427
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_043.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 43,
+      "duration_sec": 33.35332762496546,
+      "control_steps": 664,
+      "control_hz_effective": 19.908058574131182,
+      "final_stones_in_truck": 29,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": true,
+      "action_smoothness": 0.014884300529956818,
+      "last_command": [
+        1.3320006132125854,
+        -0.04373686760663986,
+        0.18235012888908386,
+        -1.074723243713379
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.6433930126987204,
+          2.4327433584539535
+        ],
+        "pile_center_xy": [
+          3.2109932668071113,
+          -0.6768916082921361
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_044.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 44,
+      "duration_sec": 5.12827729084529,
+      "control_steps": 100,
+      "control_hz_effective": 19.499725605421986,
+      "final_stones_in_truck": 1,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.006593720521777868,
+      "last_command": [
+        0.05975600332021713,
+        0.3811658024787903,
+        -0.6742502450942993,
+        0.10166976600885391
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.8445418228134312,
+          -2.03286831293931
+        ],
+        "pile_center_xy": [
+          2.940096884991292,
+          -0.6579125945087636
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_045.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 45,
+      "duration_sec": 60.121415939880535,
+      "control_steps": 1197,
+      "control_hz_effective": 19.909710729317506,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.01008304487913847,
+      "last_command": [
+        1.1888781785964966,
+        -0.032469186931848526,
+        0.15836970508098602,
+        -1.1350257396697998
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.4923276593319925,
+          2.7444791280492384
+        ],
+        "pile_center_xy": [
+          2.7543968365974276,
+          0.8902771118726729
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_046.mp4",
+      "user_result": "fail",
+      "user_success": false
+    },
+    {
+      "episode_index": 46,
+      "duration_sec": 33.45857346407138,
+      "control_steps": 664,
+      "control_hz_effective": 19.845436647591065,
+      "final_stones_in_truck": 21,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.015933573246002197,
+      "last_command": [
+        -0.960723876953125,
+        0.002334034536033869,
+        0.18687930703163147,
+        -1.3950228691101074
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          0.6560988257140006,
+          -2.750231082034243
+        ],
+        "pile_center_xy": [
+          2.847453755299653,
+          -0.4875328871653464
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_047.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 47,
+      "duration_sec": 33.718241553986445,
+      "control_steps": 671,
+      "control_hz_effective": 19.900207397401154,
+      "final_stones_in_truck": 8,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.014353228732943535,
+      "last_command": [
+        1.069498062133789,
+        -0.02602902613580227,
+        0.17766359448432922,
+        -1.0261235237121582
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.1874320247418009,
+          2.0519622252005036
+        ],
+        "pile_center_xy": [
+          2.7800667483145496,
+          -0.03542474641668081
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_048.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 48,
+      "duration_sec": 34.45792176690884,
+      "control_steps": 685,
+      "control_hz_effective": 19.879318452044014,
+      "final_stones_in_truck": 3,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.0144224027171731,
+      "last_command": [
+        -0.8990583419799805,
+        0.08269229531288147,
+        0.22395305335521698,
+        -1.3041540384292603
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.027525583350646,
+          -2.8746880570107707
+        ],
+        "pile_center_xy": [
+          3.067481229077292,
+          0.3246929612057965
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "stones_hold_success",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_049.mp4",
+      "user_result": "success",
+      "user_success": true
+    },
+    {
+      "episode_index": 49,
+      "duration_sec": 60.12737488001585,
+      "control_steps": 1197,
+      "control_hz_effective": 19.907737571923153,
+      "final_stones_in_truck": 0,
+      "stone_count_total": 250,
+      "success_threshold_stones": 25,
+      "auto_success": false,
+      "action_smoothness": 0.015107562765479088,
+      "last_command": [
+        -0.653918445110321,
+        0.07419613748788834,
+        0.49615368247032166,
+        -0.8674014210700989
+      ],
+      "episode_meta": {
+        "seed": null,
+        "truck_bottom_center_xy": [
+          1.968176182855262,
+          -2.1028020865969497
+        ],
+        "pile_center_xy": [
+          3.358271705501978,
+          0.772586558997925
+        ],
+        "stone_count": 250,
+        "physics_dt": 0.016666666666666666,
+        "render_every_n_steps": 3
+      },
+      "finished_by": "timeout",
+      "video_path": "/home/ray/codes/excavator/logs/eval_20260401_124643/videos/episode_050.mp4",
+      "user_result": "fail",
+      "user_success": false
+    }
+  ]
+}

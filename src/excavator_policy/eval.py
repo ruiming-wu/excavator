@@ -46,7 +46,7 @@ class EvalConfig:
 def parse_args() -> EvalConfig:
     parser = argparse.ArgumentParser(description="Evaluate policy in a live Isaac Sim ROS environment")
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--episodes", type=int, default=5)
+    parser.add_argument("--episodes", type=int, default=50)
     parser.add_argument("--max-seconds", type=float, default=60.0)
     parser.add_argument("--control-hz", type=float, default=20.0)
     parser.add_argument("--sample-steps", type=int, default=10)
@@ -440,7 +440,25 @@ def _sequence_start_from_previous(full_seq: np.ndarray, last_cmd: np.ndarray | N
     return full_seq[start_idx:], start_idx
 
 
-def _draw_status(screen, font, small_font, episode_idx: int, total_episodes: int, ready: bool, model_enabled: bool, control_hz: float, stones: int) -> None:
+def _display_checkpoint_label(checkpoint: Path) -> str:
+    parts = checkpoint.parts
+    if len(parts) >= 2:
+        return f"{parts[-2]}/{parts[-1]}"
+    return checkpoint.name
+
+
+def _draw_status(
+    screen,
+    font,
+    small_font,
+    episode_idx: int,
+    total_episodes: int,
+    ready: bool,
+    model_enabled: bool,
+    control_hz: float,
+    stones: int,
+    checkpoint_label: str,
+) -> None:
     screen.fill((20, 22, 26))
     title = font.render("Excavator Policy Eval", True, (230, 230, 230))
     screen.blit(title, (24, 20))
@@ -456,6 +474,7 @@ def _draw_status(screen, font, small_font, episode_idx: int, total_episodes: int
         (f"episode: {episode_idx + 1}/{total_episodes}", (220, 220, 220)),
         (f"control_hz: {control_hz:.1f}", (220, 220, 220)),
         (f"stones_in_truck: {stones}", (220, 220, 220)),
+        (f"model: {checkpoint_label}", (180, 180, 180)),
     ]
     y = 80
     for text, color in lines:
@@ -479,6 +498,7 @@ def main() -> None:
     args = parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model, cfg = _load_model(args.checkpoint, device)
+    checkpoint_label = _display_checkpoint_label(args.checkpoint)
     data_cfg = cfg["data"]
     joint_order = list(data_cfg["joint_order"])
 
@@ -524,6 +544,29 @@ def main() -> None:
         auto_mode = False
         record_proc: subprocess.Popen[str] | None = None
         record_path: Path | None = None
+        stones_nonzero_since: float | None = None
+
+        def _build_finished_episode(*, finished_by: str, finished_video_path: Path | None) -> dict[str, Any]:
+            duration = float(time.monotonic() - ep_start)
+            total_stones = int(node.latest_episode_meta.get("stone_count", 0) or 0)
+            success_threshold = int(math.ceil(total_stones * 0.10)) if total_stones > 0 else 0
+            final_stones = int(node.stones_in_truck)
+            action_np = np.stack(action_history, axis=0) if action_history else np.zeros((1, joint_dim), dtype=np.float32)
+            return {
+                "episode_index": episode_idx,
+                "duration_sec": duration,
+                "control_steps": control_steps,
+                "control_hz_effective": float(control_steps / duration) if duration > 1e-6 else 0.0,
+                "final_stones_in_truck": final_stones,
+                "stone_count_total": total_stones,
+                "success_threshold_stones": success_threshold,
+                "auto_success": bool(final_stones >= success_threshold) if success_threshold > 0 else False,
+                "action_smoothness": _action_smoothness(action_np),
+                "last_command": last_cmd.tolist(),
+                "episode_meta": node.latest_episode_meta,
+                "finished_by": finished_by,
+                "video_path": None if finished_video_path is None else str(finished_video_path),
+            }
 
         print("[eval] waiting for 'm' to start episode 1", flush=True)
 
@@ -556,6 +599,7 @@ def main() -> None:
                             last_cmd = np.zeros((joint_dim,), dtype=np.float32)
                             predicted_chunk = None
                             chunk_step = 0
+                            stones_nonzero_since = None
                             if args.record_video:
                                 record_proc, record_path = _start_episode_recording(
                                     report_dir=report_dir,
@@ -582,6 +626,7 @@ def main() -> None:
                                 last_cmd = np.zeros((joint_dim,), dtype=np.float32)
                                 predicted_chunk = None
                                 chunk_step = 0
+                                stones_nonzero_since = None
                                 auto_mode = False
                                 if args.record_video:
                                     record_proc, record_path = _start_episode_recording(
@@ -598,25 +643,13 @@ def main() -> None:
                             _stop_episode_recording(record_proc, record_path)
                             record_proc = None
                             record_path = None
-                            duration = float(time.monotonic() - ep_start)
-                            total_stones = int(node.latest_episode_meta.get("stone_count", 0) or 0)
-                            success_threshold = int(math.ceil(total_stones * 0.10)) if total_stones > 0 else 0
+                            pending_finished_report = _build_finished_episode(
+                                finished_by="manual_stop",
+                                finished_video_path=finished_video_path,
+                            )
                             final_stones = int(node.stones_in_truck)
-                            action_np = np.stack(action_history, axis=0) if action_history else np.zeros((1, joint_dim), dtype=np.float32)
-                            pending_finished_report = {
-                                "episode_index": episode_idx,
-                                "duration_sec": duration,
-                                "control_steps": control_steps,
-                                "control_hz_effective": float(control_steps / duration) if duration > 1e-6 else 0.0,
-                                "final_stones_in_truck": final_stones,
-                                "stone_count_total": total_stones,
-                                "success_threshold_stones": success_threshold,
-                                "auto_success": bool(final_stones >= success_threshold) if success_threshold > 0 else False,
-                                "action_smoothness": _action_smoothness(action_np),
-                                "last_command": last_cmd.tolist(),
-                                "episode_meta": node.latest_episode_meta,
-                                "video_path": None if finished_video_path is None else str(finished_video_path),
-                            }
+                            total_stones = int(node.latest_episode_meta.get("stone_count", 0) or 0)
+                            duration = float(pending_finished_report["duration_sec"])
                             awaiting_user_label = True
                             print(
                                 f"[eval] episode {episode_idx + 1} finished. "
@@ -667,6 +700,7 @@ def main() -> None:
                 model_enabled=model_enabled,
                 control_hz=args.control_hz,
                 stones=node.stones_in_truck,
+                checkpoint_label=checkpoint_label,
             )
 
             if pending_manual_reset:
@@ -678,6 +712,7 @@ def main() -> None:
                 pending_finished_report = None
                 predicted_chunk = None
                 chunk_step = 0
+                stones_nonzero_since = None
                 _stop_episode_recording(record_proc, record_path)
                 record_proc = None
                 record_path = None
@@ -690,6 +725,69 @@ def main() -> None:
                 time.sleep(min(period, 0.05))
                 continue
 
+            if int(node.stones_in_truck) > 0:
+                if stones_nonzero_since is None:
+                    stones_nonzero_since = step_start
+            else:
+                stones_nonzero_since = None
+
+            success_hold_reached = (
+                stones_nonzero_since is not None
+                and (step_start - stones_nonzero_since) >= args.success_hold_seconds
+            )
+
+            if success_hold_reached:
+                episode_active = False
+                model_enabled = False
+                finished_video_path = record_path
+                _stop_episode_recording(record_proc, record_path)
+                record_proc = None
+                record_path = None
+                final_stones = int(node.stones_in_truck)
+                pending_finished_report = _build_finished_episode(
+                    finished_by="stones_hold_success",
+                    finished_video_path=finished_video_path,
+                )
+                pending_finished_report["user_result"] = "success"
+                pending_finished_report["user_success"] = True
+                episodes.append(pending_finished_report)
+                episode_idx += 1
+                out_path = _write_report(report_dir, _build_report(args, args.checkpoint, device, episodes))
+                print(
+                    f"[eval] episode {episode_idx} finished early by stones hold: "
+                    f"stones={final_stones} result=success saved={out_path}",
+                    flush=True,
+                )
+                pending_finished_report = None
+                stones_nonzero_since = None
+                if episode_idx >= args.episodes:
+                    auto_mode = False
+                    print(f"[eval] evaluation completed: {episode_idx}/{args.episodes}", flush=True)
+                else:
+                    _prepare_episode(node, args.reset_timeout)
+                    if auto_mode:
+                        episode_active = True
+                        model_enabled = True
+                        ep_start = time.monotonic()
+                        action_history = []
+                        control_steps = 0
+                        inference_count_episode = 0
+                        last_cmd = np.zeros((joint_dim,), dtype=np.float32)
+                        predicted_chunk = None
+                        chunk_step = 0
+                        stones_nonzero_since = None
+                        if args.record_video:
+                            record_proc, record_path = _start_episode_recording(
+                                report_dir=report_dir,
+                                episode_index=episode_idx,
+                                display=args.record_display,
+                                fps=args.record_fps,
+                            )
+                        print(f"[eval] auto episode {episode_idx + 1} started", flush=True)
+                    else:
+                        print(f"[eval] waiting for 'm' to start episode {episode_idx + 1}", flush=True)
+                continue
+
             if (step_start - ep_start) >= args.max_seconds:
                 episode_active = False
                 model_enabled = False
@@ -697,26 +795,11 @@ def main() -> None:
                 _stop_episode_recording(record_proc, record_path)
                 record_proc = None
                 record_path = None
-                duration = float(time.monotonic() - ep_start)
-                total_stones = int(node.latest_episode_meta.get("stone_count", 0) or 0)
-                success_threshold = int(math.ceil(total_stones * 0.10)) if total_stones > 0 else 0
                 final_stones = int(node.stones_in_truck)
-                action_np = np.stack(action_history, axis=0) if action_history else np.zeros((1, joint_dim), dtype=np.float32)
-                pending_finished_report = {
-                    "episode_index": episode_idx,
-                    "duration_sec": duration,
-                    "control_steps": control_steps,
-                    "control_hz_effective": float(control_steps / duration) if duration > 1e-6 else 0.0,
-                    "final_stones_in_truck": final_stones,
-                    "stone_count_total": total_stones,
-                    "success_threshold_stones": success_threshold,
-                    "auto_success": bool(final_stones >= success_threshold) if success_threshold > 0 else False,
-                    "action_smoothness": _action_smoothness(action_np),
-                    "last_command": last_cmd.tolist(),
-                    "episode_meta": node.latest_episode_meta,
-                    "finished_by": "timeout",
-                    "video_path": None if finished_video_path is None else str(finished_video_path),
-                }
+                pending_finished_report = _build_finished_episode(
+                    finished_by="timeout",
+                    finished_video_path=finished_video_path,
+                )
                 if auto_mode:
                     pending_finished_report["user_result"] = "success" if final_stones > 0 else "fail"
                     pending_finished_report["user_success"] = bool(final_stones > 0)
@@ -729,6 +812,7 @@ def main() -> None:
                         flush=True,
                     )
                     pending_finished_report = None
+                    stones_nonzero_since = None
                     if episode_idx >= args.episodes:
                         auto_mode = False
                         print(f"[eval] auto evaluation completed: {episode_idx}/{args.episodes}", flush=True)
@@ -743,6 +827,7 @@ def main() -> None:
                         last_cmd = np.zeros((joint_dim,), dtype=np.float32)
                         predicted_chunk = None
                         chunk_step = 0
+                        stones_nonzero_since = None
                         if args.record_video:
                             record_proc, record_path = _start_episode_recording(
                                 report_dir=report_dir,

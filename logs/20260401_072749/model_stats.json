@@ -1,0 +1,30 @@
+{
+  "image_encoder": {
+    "trainable": 27744,
+    "total": 27744
+  },
+  "point_encoder": {
+    "trainable": 4416,
+    "total": 4416
+  },
+  "state_encoder": {
+    "trainable": 640,
+    "total": 640
+  },
+  "time_mlp": {
+    "trainable": 4288,
+    "total": 4288
+  },
+  "denoise": {
+    "trainable": 492608,
+    "total": 492608
+  },
+  "policy_total": {
+    "trainable": 611872,
+    "total": 611872
+  },
+  "fusion": {
+    "trainable": 82176,
+    "total": 82176
+  }
+}

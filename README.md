@@ -1,119 +1,82 @@
-# Excavator Pipeline README
+# Excavator Pipeline
 
-## 1. 项目目标
+## 1. 当前目标
 
-当前仓库已经形成一条最小闭环：
+当前仓库的目标是跑通最小闭环：
 
-1. Isaac Sim 挖掘机场景仿真
-2. ROS2 话题遥操作与录制
-3. 原始数据回放与对齐
-4. 对齐后多模态策略训练
-5. 在线仿真评估与后续部署准备
+`Isaac Sim 仿真 -> teleop 采集 -> 数据对齐 -> 策略训练 -> 在线仿真评估`
 
-当前默认工作流是：
+当前主要入口：
 
-`仿真 -> teleop -> record -> replay/check -> align -> train -> eval`
+- 仿真：`./scripts/sim.sh`
+- 遥操作：`./scripts/teleop.sh`
+- 录制：`./scripts/record.sh`
+- 回放：`./scripts/replay.sh`
+- 数据检查：`./scripts/check.sh`
+- 数据对齐：`./scripts/align.sh`
+- 训练：`./scripts/train.sh`
+- 在线评估：`./scripts/eval.sh --checkpoint logs/<run_id>/model_best.pt`
+- 离线分析：`./scripts/analyse.sh --checkpoint ...`
 
 ---
 
 ## 2. 目录结构
 
-核心目录现在是：
-
-- `data/raw/`: 原始录制数据，每条 run 一个目录
-- `data/aligned/`: 对齐后的数据，每条 run 一个目录，核心文件是 `frames.parquet`
-- `logs/`: 训练输出、checkpoint、metrics、wandb 本地日志目录
-- `assets/`: URDF 与场景资源
+- `assets/`: URDF 与相关资源
+- `data/raw/`: 原始录制数据
+- `data/aligned/`: 对齐后的数据，每条 run 对应一个 `frames.parquet`
+- `logs/`: 训练输出、评估输出、分析报告
 - `src/excavator_sim/`: 仿真、teleop、record、vis
-- `src/excavator_policy/`: 训练数据集、模型、训练与部署脚本
-- `scripts/`: 所有统一启动脚本
+- `src/excavator_policy/`: 数据集、模型、训练、评估、分析
+- `scripts/`: 统一脚本入口
 
 ---
 
 ## 3. 环境准备
 
-推荐环境：
-
-- Ubuntu 24.04
-- `conda` 环境：`isaac`
-- Isaac Sim 5.1
-- 本地安装 ROS2 CLI 可选；项目运行时默认使用 Isaac Sim 自带的 ROS2 Python 运行时
-
-### 3.1 激活环境
+### 3.1 创建 conda 环境
 
 ```bash
-conda activate isaac
+conda create -n excavator_env python=3.11 -y
+conda activate excavator_env
 ```
 
-### 3.2 Python 依赖
-
-建议至少包含：
+### 3.2 安装依赖
 
 ```bash
-pip install numpy pandas pyarrow fastparquet pygame open3d pyyaml wandb
+pip install --upgrade pip
+pip install "isaacsim[all,extscache]==5.1.0" --extra-index-url https://pypi.nvidia.com
+pip install -U torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu128
+pip install pyarrow==23.0.1 fastparquet==2025.12.0 PyYAML==6.0.2 pygame==2.6.1
 ```
 
-训练相关依赖：
+### 3.3 运行时环境
+
+运行仓库脚本前，先：
 
 ```bash
-pip install torch torchvision
+conda activate excavator_env
 ```
 
-说明：
+然后直接运行 `./scripts/*.sh`。
 
-- `pyarrow` / `fastparquet`: 用于 parquet 读写
-- `PyYAML`: 用于读取 `src/excavator_policy/config.yaml`
-- `wandb`: 训练日志记录
-- `torchvision`: `ResNet-18` 图像 encoder
-- `rclpy` / `sensor_msgs_py` 运行时由 Isaac Sim 内置 `isaacsim.ros2.bridge` 提供
-- 如果你只想运行本仓库脚本，不再要求先 `source /opt/ros/jazzy/setup.bash`
-- 只有在你需要系统 `ros2 topic ...` 命令行工具时，才额外 `source /opt/ros/jazzy/setup.bash`
+### 3.4 ROS2 依赖说明
+
+- 项目运行 `sim / teleop / record / eval / vis` 时，默认使用 Isaac Sim 自带的 ROS2 Python 运行时
+- 不再强制依赖本地 `/opt/ros/...` 的 Python 包
+- 如果你想用系统 `ros2 topic ...` 命令行工具，可以额外安装本地 ROS2 CLI
 
 ---
 
-## 4. 启动仿真
+## 4. 仿真、采集与回放
 
-启动：
+### 4.1 启动仿真
 
 ```bash
 ./scripts/sim.sh
 ```
 
-停止：
-
-- 在该终端按 `q`
-- 或 `Ctrl+C`
-
-### 4.1 当前仿真设置
-
-当前场景包含：
-
-- 4DOF 挖掘机（URDF 导入）
-- 卡车
-- 土堆 / stone pile
-- 安装在 excavator house 的前向相机
-- 安装在 excavator bucket 的相机
-- 一个 lidar
-- ROS2 bridge
-
-### 4.2 当前传感器设置
-
-相机：
-
-- `camera_driver`
-- `camera_bucket`
-- 分辨率：`240 x 160`
-- 录制存储 shape：`(160, 240, 3)`
-
-lidar：
-
-- 录制存储 shape：`(N, 3)`
-- 单帧点数不是常数
-- 当前训练前会随机下采样到 `4096` 点
-
-### 4.3 当前主 ROS2 话题
-
-仿真侧主要话题：
+当前仿真主要话题：
 
 - `/excavator/camera_driver/rgb`
 - `/excavator/camera_bucket/rgb`
@@ -126,81 +89,24 @@ lidar：
 - `/excavator/episode_meta`
 - `/excavator/record_control`
 
----
-
-## 5. Teleop
-
-启动 teleop：
+### 4.2 遥操作
 
 ```bash
 ./scripts/teleop.sh
 ```
 
-当前 teleop 是纯控制进程，不做重 UI 渲染，目的是保证操控顺滑。
+teleop 发送的是关节目标命令，当前录制会同时保存：
 
-### 5.1 手柄控制逻辑
+- `action`: 操作者命令
+- `proprio`: 机器人真实状态
 
-当前主要映射：
-
-- 左摇杆上下：`arm_joint`
-- 左摇杆左右：`swing_joint`
-- 右摇杆上下：`boom_joint`
-- 右摇杆左右：`bucket_joint`
-
-控制模式本质上是：
-
-`target_joint = current_target_joint + scale * joystick_value`
-
-### 5.2 特殊按键
-
-- `A / 键盘 1`: 开始录制
-- `B / 键盘 2`: 结束录制
-- `X / 键盘 3`: reset env
-- `Y / 键盘 4`: joint target 归零
-
----
-
-## 6. 可视化
-
-启动在线可视化：
-
-```bash
-./scripts/vis.sh
-```
-
-当前 `vis` 只负责显示，不参与控制和写盘。
-
-### 6.1 当前可视化内容
-
-- 两路相机图像
-- lidar 视图
-- 当前 joint state
-- 当前 target joint command
-- ready 状态
-- 操作提示
-
-### 6.2 lidar 视角
-
-当前 lidar 可视化视角：
-
-- 观察点：`(0, 0, 0)` 或在 replay 中保持统一指定视角
-- 颜色按距离映射
-
----
-
-## 7. 录制
-
-启动录制器：
+### 4.3 录制
 
 ```bash
 ./scripts/record.sh
 ```
 
-录制器是独立进程，teleop 只发录制控制信号，真正的写盘由 recorder 完成。
-
-### 7.1 每条 raw run 会保存什么
-
-每条 `data/raw/run_xxx/` 当前包含：
+每条 `data/raw/run_xxx/` 当前会包含：
 
 - `meta.json`
 - `camera_driver.parquet`
@@ -214,143 +120,54 @@ lidar：
 - `camera_bucket/*.npy`
 - `lidar/*.npy`
 
-### 7.2 已录内容含义
+### 4.4 回放
 
-- `camera_driver/*.npy`: driver 相机图像
-- `camera_bucket/*.npy`: bucket 相机图像
-- `lidar/*.npy`: 原始点云 `(N, 3)`
-- `proprio.parquet`: 实际关节状态（位置、速度）
-- `action.parquet`: teleop 发出的关节命令
-- `stones_in_truck.parquet`: 卡车中 stone 数量
-- `meta.json`: episode 元数据、平均频率、时长等
-
-### 7.3 为什么同时保留 `proprio` 和 `action`
-
-这是当前设计里很重要的一点：
-
-- `proprio`: 机器人实际状态
-- `action`: 操作者命令
-
-它们不应该混成一个东西，因为命令不一定被物理系统完全实现。
-
----
-
-## 8. 原始回放与对齐回放
-
-启动 replay：
-
-```bash
-./scripts/replay.sh --run-dir run_008
-```
-
-### 8.1 raw 模式
+原始回放：
 
 ```bash
 ./scripts/replay.sh --type raw --run-dir run_008
 ```
 
-按原始 `recv_ns` 回放：
-
-- 两路相机
-- lidar
-- current joints
-- target joints
-- stones in truck
-
-### 8.2 aligned 模式
+对齐后回放：
 
 ```bash
 ./scripts/replay.sh --type aligned --run-dir run_008
 ```
 
-按 `data/aligned/run_xxx/frames.parquet` 回放。
-
-### 8.3 replay 里期望看到什么
-
-正常情况下你应该看到：
-
-- 双相机画面随挖掘机动作变化
-- lidar 点云同步更新
-- `cur` 与 `tgt` 的关节值随着操作变化
-- `stones in truck` 随装载逐渐变化
-- aligned 模式下整体节奏更规整
-
----
-
-## 9. 数据检查
-
-运行：
+### 4.5 数据检查
 
 ```bash
 ./scripts/check.sh
 ```
 
-当前检查规则包括：
-
-- 初始 joint state 是否在 `±0.1 rad` 内
-- 起始 `stones_in_truck == 0`
-- 结束 `stones_in_truck >= 8% * 总石块数`
-- episode 时长是否在 `[20s, 50s]`
-- 相机和 lidar 平均频率是否 `> 15 Hz`
-
-并且会输出通过 run 的统计摘要。
-
----
-
-## 10. 数据对齐
-
-运行：
+### 4.6 数据对齐
 
 ```bash
 ./scripts/align.sh
 ```
 
-### 10.1 当前对齐规则
+当前对齐规则：
 
-- 默认主轴：`lidar`
-- 时间基准：`recv_ns`
-- 严格 `±50ms` 窗口的模态：
-  - `camera_driver`
-  - `camera_bucket`
-  - `lidar`
-  - `proprio`
-  - `action`
-- `stones_in_truck`：只找最近邻，不受 `50ms` 窗口限制
+- 主轴默认是 `lidar`
+- 时间基准使用 `recv_ns`
+- `camera_driver / camera_bucket / lidar / proprio / action` 使用严格 `±50ms`
+- `stones_in_truck` 只做最近邻，不受 `50ms` 限制
 
-### 10.2 对齐产物
-
-每条 run 会在：
+输出到：
 
 - `data/aligned/run_xxx/frames.parquet`
 - `data/aligned/run_xxx/align_meta.json`
 
-其中 `frames.parquet` 包含：
-
-- 对齐后的图像路径
-- 对齐后的点云路径
-- 当前 `proprio_*`
-- 当前 `action_*`
-- `stones_in_truck_*`
-- 各模态相对主轴的 `delta_ms_*`
-
 ---
 
-## 11. 当前训练设置
+## 5. 训练
 
-训练入口：
-
-```bash
-./scripts/train.sh
-```
-
-### 11.1 当前训练数据源
+### 5.1 数据定义
 
 训练读取：
 
 - `data/aligned/run_xxx/frames.parquet`
-- 对应 raw run 中的图像 / 点云文件
-
-### 11.2 当前 observation / target
+- 对应 raw run 里的图像和点云 `.npy`
 
 当前 observation：
 
@@ -361,238 +178,161 @@ lidar：
 
 当前 target：
 
-- `future_cmd`: `(16, 4)`
+- 未来 `16` 步 joint command 序列
+- shape: `(16, 4)`
 
-也就是：
-
-- 输入：当前双相机 + 当前点云 + 当前真实 joint state
-- 输出：未来 16 步 joint command 序列
-
-### 11.3 当前 joint 顺序
-
-训练侧统一顺序为：
+统一 joint 顺序：
 
 - `swing_joint`
 - `boom_joint`
 - `arm_joint`
 - `bucket_joint`
 
-这一步会把原始数据里不一致的 `name` 顺序重排成统一格式。
+### 5.2 当前训练目标
 
----
+当前训练使用 **flow matching** 风格。
 
-## 12. 当前模型结构
+训练路径：
 
-文件：
+- `x0 = 0`
+- `x1 = future_cmd_seq`
+- `x_t = t * future_cmd_seq`
+
+监督目标：
+
+- `velocity = future_cmd_seq`
+
+当前 loss：
+
+- `MSE(pred_velocity, future_cmd_seq)`
+
+### 5.3 当前模型
+
+当前模型定义：
 
 - `src/excavator_policy/model.py`
-- `src/excavator_policy/model_small.py`
 
-当前仓库现在同时保留两套 policy：
-
-1. 大模型：`model.py`
-2. 小模型 baseline：`model_small.py`
-
-当前训练默认使用大模型；评估脚本支持自动识别并加载这两类 checkpoint。
-
-### 12.1 大模型结构概览
-
-- 图像编码器：共享权重的 `ResNet-18`
-- 点云编码器：PointNet 风格编码器（逐点 MLP + max pooling）
-- 状态编码器：2 层 MLP
-- 条件向量：直接拼接成 `2048` 维
-- denoiser：MLP
-
-### 12.2 小模型结构概览
-
-- 图像编码器：3 层小卷积
-- 点云编码器：小 MLP + mean pooling
-- 状态编码器：单层 MLP
-- fusion：1 层 MLP
-- 参数量约 `62 万`
-
-### 12.3 当前训练目标
-
-当前 loss 不是直接监督 `pred_cmd vs true_cmd`，而是 diffusion-style 的噪声预测：
-
-- 输入：双相机 + 点云 + 当前真实 joint state
-- 输出目标：未来 `16 x 4` 命令序列中的噪声
-
-### 12.4 当前不是的东西
-
-当前模型还不是一个大规模 transformer policy，也不是 PointNet++ / 3D sparse conv 模型。它现在是一个正式一些的多模态 diffusion-style baseline：`ResNet-18 + PointNet-style encoder + state MLP + MLP denoiser`。
-
----
-
-## 13. 在线仿真评估
-
-真实仿真评估入口：
-
-```bash
-./scripts/eval.sh --checkpoint logs/<run_id>/model_best.pt
-```
-
-这个入口现在是一个**在线人工闭环评估器**，不是全自动 benchmark。它会：
-
-- 连接当前正在运行的 Isaac Sim ROS 话题
-- 等待你按 `m` 开始当前 episode
-- 读取真实双相机、真实点云、真实 joint state
-- 在线发布 `/excavator/cmd_joint`
-- 再按一次 `m` 结束当前 episode
-- 等待你按 `s` / `f` 标注成功或失败
-- 标注后自动 reset 环境并等待下一次 `m`
-
-输出默认写到：
-
-- `logs/eval_<timestamp>/eval_metrics.json`
-
-说明：
-
-- 旧的 `deploy_sim.py` 是离线 proxy，只适合做 very quick sanity check
-- 真正基于随机仿真环境的评估现在统一走 `eval.py / eval.sh`
-- 评估 report 现在会在每次 `s / f` 标注后立刻落盘
-
-### 13.1 当前 eval 控制键
-
-- `m`: 开始 / 结束当前 episode
-- `s`: 标记上一条 episode 成功
-- `f`: 标记上一条 episode 失败
-- `r`: 手动 reset 环境
-- `q`: 退出评估
-
-### 13.2 当前评估已知问题
-
-当前在线 eval 仍在迭代中，尤其是“模型输出如何安全地解码成在线 joint command”这部分还没有完全稳定。到 2026-03-31 的当前状态：
-
-- recorder / align / train 链路已经稳定可用
-- eval 已经能连接真实 sim 并人工标注 episode
-- 但部分 checkpoint 在线 rollout 仍可能出现不合理动作
-- 当前正在收敛的问题是：如何让 diffusion-style 输出在在线闭环里更保守、更稳定
-
----
-
-## 14. 训练输出与日志
-
-现在训练输出写到：
-
-- `logs/<run_id>/model_last.pt`
-- `logs/<run_id>/model_best.pt`
-- `logs/<run_id>/metrics.json`
-- `logs/<run_id>/config.json`
-- `logs/<run_id>/history.json`
-- `logs/<run_id>/split.json`
-
-说明：
-
-- `model_last.pt`: 最后一个 epoch 的 checkpoint
-- `model_best.pt`: 验证集最优 checkpoint
-- `metrics.json` 中会记录 `best_val_epoch`
-
-### 13.1 wandb
-
-训练现在会使用 `wandb`。
-
-默认配置在：
-
-- [src/excavator_policy/config.yaml](src/excavator_policy/config.yaml)
-
-当前默认：
-
-- `project: excavator_policy`
-- `name: excavator_policy`
-
-如果当前环境没有 `wandb`，训练会直接报错提醒安装。
-
----
-
-## 14. 当前最推荐的完整工作流
-
-### Step 1: 启动仿真
-
-```bash
-./scripts/sim.sh
-```
-
-### Step 2: 启动 recorder
-
-```bash
-./scripts/record.sh
-```
-
-### Step 3: 启动 teleop
-
-```bash
-./scripts/teleop.sh
-```
-
-### Step 4: 可选启动 vis
-
-```bash
-./scripts/vis.sh
-```
-
-### Step 5: 采集多条 raw run
-
-- `1/A` 开始
-- `2/B` 结束
-- `3/X` reset env
-- `4/Y` joint target 归零
-
-### Step 6: 检查数据
-
-```bash
-./scripts/check.sh
-```
-
-### Step 7: 对齐数据
-
-```bash
-./scripts/align.sh
-```
-
-### Step 8: 回放 raw / aligned
-
-```bash
-./scripts/replay.sh --type raw --run-dir run_008
-./scripts/replay.sh --type aligned --run-dir run_008
-```
-
-### Step 9: 训练
+训练入口：
 
 ```bash
 ./scripts/train.sh
 ```
 
-### Step 10: 在线评估
+默认配置：
+
+- `src/excavator_policy/config.yaml`
+
+### 5.4 当前训练输出
+
+训练输出在：
+
+- `logs/<run_id>/model_last.pt`
+- `logs/<run_id>/model_best.pt`
+- `logs/<run_id>/metrics.json`
+- `logs/<run_id>/history.json`
+- `logs/<run_id>/split.json`
+- `logs/<run_id>/config.json`
+
+如果使用 wandb，默认 run 名就是日志目录名：
+
+- `YYYYmmdd_HHMMSS`
+
+---
+
+## 6. 在线评估
+
+入口：
 
 ```bash
 ./scripts/eval.sh --checkpoint logs/<run_id>/model_best.pt
 ```
 
+当前评估器是**在线人工闭环评估器**，会读取真实 sim observation，再在线发布 `/excavator/cmd_joint`。
+
+当前交互：
+
+- `m`: 开始/结束当前 episode
+- `s`: 标记上一条 episode 成功
+- `f`: 标记上一条 episode 失败
+- `r`: 手动 reset 环境
+- `q`: 退出评估
+
+每次 `s / f` 后会立刻写：
+
+- `logs/eval_<timestamp>/eval_metrics.json`
+
+另外每隔固定推理次数还会写：
+
+- `logs/eval_<timestamp>/inference_debug.jsonl`
+
+用于后续分析“模型是否卡在局部姿态”。
+
+### 6.1 当前重建过程
+
+当前 eval 使用 flow matching 的欧拉积分重建：
+
+- 初始动作序列：全 0
+- 默认积分步数：`10`
+- 默认步长：`0.1`
+
+即：
+
+```text
+action_{k+1} = action_k + 0.1 * v_theta(obs, action_k, t_k)
+```
+
+### 6.2 当前状态
+
+当前在线评估已经能稳定：
+
+- 连接真实 sim
+- 人工标注 episode
+- 输出 report 和 debug 快照
+
+但策略是否能稳定推进完整挖装阶段，仍在持续调试。
+
 ---
 
-## 15. 当前状态总结
+## 7. 离线分析
 
-现在仓库已经具备：
+新增分析脚本：
 
-- 可运行的 Isaac Sim 挖掘机场景
-- 稳定的 teleop 与 recorder 链路
-- raw 数据与 aligned 数据两层表示
-- replay / check / align 工具链
-- 可训练的大/小两套 diffusion-style baseline
-- wandb + 本地 `logs/` 训练日志落盘
-- 可交互的在线 sim eval
+```bash
+./scripts/analyse.sh \
+  --checkpoint logs/<run_id>/model_best.pt \
+  --split val
+```
 
-但也要明确当前边界：
+它会比较：
 
-- 数据链路已经基本打通
-- 训练链路已经稳定
-- 在线评估链路已经能跑
-- **在线动作解码还没有完全调稳，当前仍属于继续迭代阶段**
+- 真实未来 16 步动作
+- 模型重建的未来 16 步动作
 
-如果下一步继续推进，最值得做的是：
+并输出：
 
-1. 把 eval 的在线解码继续收敛稳定
-2. 对比小模型和大模型在真实 sim 里的表现
-3. 更真实、更稳的 diffusion sampling / inference 过程
-4. 在在线 eval 稳定后再继续迭代更强模型
+- overall `MAE / RMSE`
+- 第 1~16 步误差
+- 真实/预测序列内部平均运动幅度
+- hesitation ratio
+
+输出到：
+
+- `logs/analysis_<timestamp>/prediction_analysis.json`
+
+---
+
+## 8. 当前已知问题
+
+- 在线 eval 虽然能跑，但策略仍可能卡在局部姿态，尚未稳定完成“挖取 -> 抬臂 -> 回转 -> 放料”完整阶段切换
+- 目前正在重点排查：数据中的长犹豫片段、短 horizon、单帧 observation 带来的局部 continuation 问题
+- 小模型 baseline 仍然很重要，不建议轻易删除
+
+---
+
+## 9. 最小可验收标准
+
+- 能稳定启动仿真
+- 能录到至少一条 `run_xxx`
+- 能完成 `check` 与 `align`
+- 能训练出 `logs/<run_id>/model_last.pt` 和 `model_best.pt`
+- 能跑在线评估并输出 `eval_metrics.json`
