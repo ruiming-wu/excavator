@@ -9,7 +9,7 @@ source "${SCRIPT_DIR}/sim.sh"
 PYTHON_BIN="${TRAIN_PYTHON_BIN:-${EXCAVATOR_PYTHON_BIN}}"
 
 cd "${EXCAVATOR_ROOT}"
-CMD=("${PYTHON_BIN}" -u -m excavator_policy.train --config src/excavator_policy/config.yaml "$@")
+CMD=("${PYTHON_BIN}" -u -m excavator_policy.train "$@")
 
 echo "[train] starting: ${CMD[*]}"
 "${CMD[@]}" &

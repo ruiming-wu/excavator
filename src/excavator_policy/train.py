@@ -15,7 +15,8 @@ from torch.utils.data import DataLoader
 
 from excavator_policy.config import load_config
 from excavator_policy.dataset import build_dataset_from_config
-from excavator_policy.model import DiffusionPolicy, diffusion_loss
+from excavator_policy.model import DiffusionPolicy, flow_matching_loss
+from excavator_policy.model_small import SmallDiffusionPolicy, flow_matching_loss_small
 
 
 def _collate(batch):
@@ -40,7 +41,8 @@ def _set_seed(seed: int) -> None:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train excavation diffusion policy")
-    parser.add_argument("--config", default=str(Path(__file__).with_name("config.yaml")))
+    parser.add_argument("--config", default="")
+    parser.add_argument("--size", choices=["big", "small"], default="big")
     return parser.parse_args()
 
 
@@ -50,7 +52,7 @@ def _resolve_device(device_str: str) -> str:
     return device_str
 
 
-def _init_wandb(train_cfg: dict, full_cfg: dict, out_dir: Path):
+def _init_wandb(train_cfg: dict, full_cfg: dict, out_dir: Path, run_name: str):
     wandb_cfg = train_cfg.get("wandb", {}) or {}
     if not bool(wandb_cfg.get("enabled", True)):
         return None
@@ -61,7 +63,7 @@ def _init_wandb(train_cfg: dict, full_cfg: dict, out_dir: Path):
 
     run = wandb.init(
         project=str(wandb_cfg.get("project", "excavator_policy")),
-        name=str(wandb_cfg.get("name", "excavator_policy")),
+        name=str(wandb_cfg.get("name", "")).strip() or run_name,
         mode=str(wandb_cfg.get("mode", "online")),
         dir=str(out_dir),
         config=deepcopy(full_cfg),
@@ -99,8 +101,8 @@ def _count_params(module: torch.nn.Module) -> dict[str, int]:
     return {"trainable": int(trainable), "total": int(total)}
 
 
-def _model_stats(model: DiffusionPolicy) -> dict[str, dict[str, int]]:
-    return {
+def _model_stats(model: torch.nn.Module) -> dict[str, dict[str, int]]:
+    stats = {
         "image_encoder": _count_params(model.encoder.image_encoder),
         "point_encoder": _count_params(model.encoder.point_encoder),
         "state_encoder": _count_params(model.encoder.state_encoder),
@@ -108,6 +110,9 @@ def _model_stats(model: DiffusionPolicy) -> dict[str, dict[str, int]]:
         "denoise": _count_params(model.denoise),
         "policy_total": _count_params(model),
     }
+    if hasattr(model.encoder, "fusion"):
+        stats["fusion"] = _count_params(model.encoder.fusion)
+    return stats
 
 
 def _build_loader(dataset, train_cfg: dict, shuffle: bool) -> DataLoader:
@@ -129,7 +134,7 @@ def _save_json(path: Path, payload: dict | list) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def _save_checkpoint(path: Path, model: DiffusionPolicy, joint_dim: int, horizon: int, cfg: dict, epoch: int) -> None:
+def _save_checkpoint(path: Path, model: torch.nn.Module, joint_dim: int, horizon: int, cfg: dict, epoch: int) -> None:
     torch.save(
         {
             "state_dict": model.state_dict(),
@@ -203,7 +208,9 @@ def _query_gpu_metrics(device: str) -> dict[str, float]:
 
 def main():
     args = parse_args()
-    cfg = load_config(args.config)
+    default_cfg = Path(__file__).with_name("config_small.yaml" if args.size == "small" else "config.yaml")
+    cfg_path = args.config or str(default_cfg)
+    cfg = load_config(cfg_path)
     data_cfg = cfg["data"]
     model_cfg = cfg["model"]
     train_cfg = cfg["training"]
@@ -212,11 +219,16 @@ def main():
     _set_seed(seed)
 
     device = _resolve_device(str(train_cfg.get("device", "auto")))
-    run_name = str(train_cfg.get("run_name", "")).strip() or datetime.now().strftime("%Y%m%d_%H%M%S")
+    configured_run_name = str(train_cfg.get("run_name", "")).strip()
+    if configured_run_name:
+        run_name = configured_run_name
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_name = f"{timestamp}_small" if args.size == "small" else timestamp
     out_dir = Path(train_cfg.get("output_dir", "logs")) / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    wandb_run = _init_wandb(train_cfg, cfg, out_dir)
+    wandb_run = _init_wandb(train_cfg, cfg, out_dir, run_name)
 
     all_runs = _list_run_names(data_cfg)
     if not all_runs:
@@ -224,8 +236,8 @@ def main():
 
     train_ratio = float(data_cfg.get("train_ratio", 0.9))
     train_runs, val_runs = _split_runs(all_runs, train_ratio, seed)
-    train_dataset = build_dataset_from_config(data_cfg, allowed_runs=train_runs)
-    val_dataset = build_dataset_from_config(data_cfg, allowed_runs=val_runs) if val_runs else None
+    train_dataset = build_dataset_from_config(data_cfg, allowed_runs=train_runs, hesitation_filter_enabled=True)
+    val_dataset = build_dataset_from_config(data_cfg, allowed_runs=val_runs, hesitation_filter_enabled=False) if val_runs else None
     if len(train_dataset) == 0:
         raise RuntimeError("Training dataset is empty after run split.")
 
@@ -234,19 +246,35 @@ def main():
 
     joint_dim = len(data_cfg["joint_order"])
     horizon = int(data_cfg["horizon"])
-    model = DiffusionPolicy(
-        joint_dim=joint_dim,
-        horizon=horizon,
-        hidden_dim=int(model_cfg.get("hidden_dim", 2048)),
-        time_dim=int(model_cfg.get("time_dim", 128)),
-        image_out_dim=int(model_cfg.get("image_out_dim", 512)),
-        image_pretrained=bool(model_cfg.get("image_pretrained", False)),
-        point_dim=int(data_cfg.get("point_dim", 3)),
-        point_hidden_dims=list(model_cfg.get("point_hidden_dims", [64, 128, 256, 512])),
-        point_out_dim=int(model_cfg.get("point_out_dim", 512)),
-        state_hidden_dims=list(model_cfg.get("state_hidden_dims", [256, 512])),
-        state_out_dim=int(model_cfg.get("state_out_dim", 512)),
-    ).to(device)
+    if args.size == "small":
+        model = SmallDiffusionPolicy(
+            joint_dim=joint_dim,
+            horizon=horizon,
+            emb_dim=int(model_cfg.get("emb_dim", 256)),
+            hidden_dim=int(model_cfg.get("hidden_dim", 512)),
+            time_dim=int(model_cfg.get("time_dim", 64)),
+            image_conv_channels=list(model_cfg.get("image_conv_channels", [16, 32, 64])),
+            point_dim=int(data_cfg.get("point_dim", 3)),
+            point_hidden_dim=int(model_cfg.get("point_hidden_dim", 64)),
+            point_feature_dim=int(model_cfg.get("point_feature_dim", 64)),
+            state_hidden_dim=int(model_cfg.get("state_hidden_dim", 128)),
+        ).to(device)
+        loss_fn = flow_matching_loss_small
+    else:
+        model = DiffusionPolicy(
+            joint_dim=joint_dim,
+            horizon=horizon,
+            hidden_dim=int(model_cfg.get("hidden_dim", 2048)),
+            time_dim=int(model_cfg.get("time_dim", 128)),
+            image_out_dim=int(model_cfg.get("image_out_dim", 512)),
+            image_pretrained=bool(model_cfg.get("image_pretrained", False)),
+            point_dim=int(data_cfg.get("point_dim", 3)),
+            point_hidden_dims=list(model_cfg.get("point_hidden_dims", [64, 128, 256, 512])),
+            point_out_dim=int(model_cfg.get("point_out_dim", 512)),
+            state_hidden_dims=list(model_cfg.get("state_hidden_dims", [256, 512])),
+            state_out_dim=int(model_cfg.get("state_out_dim", 512)),
+        ).to(device)
+        loss_fn = flow_matching_loss
     optim = torch.optim.AdamW(
         model.parameters(),
         lr=float(train_cfg.get("lr", 1e-4)),
@@ -257,6 +285,7 @@ def main():
     param_stats = _model_stats(model)
     manifest = {
         "config_path": cfg.get("_config_path", ""),
+        "model_size": args.size,
         "device": device,
         "seed": seed,
         "train_runs": train_runs,
@@ -266,6 +295,8 @@ def main():
         "num_val_runs": len(val_runs),
         "num_train_samples": len(train_dataset),
         "num_val_samples": 0 if val_dataset is None else len(val_dataset),
+        "train_dataset_filter": getattr(train_dataset, "filter_summary", {}),
+        "val_dataset_filter": {} if val_dataset is None else getattr(val_dataset, "filter_summary", {}),
         "parameter_counts": param_stats,
         "scheduler": train_cfg.get("scheduler", {}),
     }
@@ -276,10 +307,19 @@ def main():
     _save_json(out_dir / "manifest.json", manifest)
 
     print(f"[train] run_name={run_name}")
+    print(f"[train] model_size={args.size}")
     print(f"[train] device={device} seed={seed}")
     print(f"[train] train_runs({len(train_runs)}): {train_runs}")
     print(f"[train] val_runs({len(val_runs)}): {val_runs}")
     print(f"[train] num_train_samples={len(train_dataset)} num_val_samples={0 if val_dataset is None else len(val_dataset)}")
+    train_filter = getattr(train_dataset, "filter_summary", {})
+    if train_filter.get("enabled", False):
+        print(
+            "[train] hesitation_filter(train): "
+            f"kept={train_filter.get('kept_samples', 0)}/{train_filter.get('total_candidates', 0)} "
+            f"dropped={train_filter.get('dropped_samples', 0)} "
+            f"full_keep_threshold={train_filter.get('full_keep_threshold', 0.02):.4f}"
+        )
     for part_name, stats in param_stats.items():
         print(f"[train] params.{part_name}: trainable={stats['trainable']} total={stats['total']}")
 
@@ -307,7 +347,7 @@ def main():
             global_step += 1
             obs = {k: v.to(device, non_blocking=True) for k, v in obs.items()}
             action = action.to(device, non_blocking=True)
-            loss = diffusion_loss(model, obs, action)
+            loss = loss_fn(model, obs, action)
             optim.zero_grad(set_to_none=True)
             loss.backward()
             if grad_clip_norm > 0:
@@ -335,7 +375,7 @@ def main():
                 for obs, action in val_loader:
                     obs = {k: v.to(device, non_blocking=True) for k, v in obs.items()}
                     action = action.to(device, non_blocking=True)
-                    val_total += float(diffusion_loss(model, obs, action).item())
+                    val_total += float(loss_fn(model, obs, action).item())
             final_val_loss = val_total / max(len(val_loader), 1)
             print(f"epoch={epoch + 1}/{epochs} mean_train_loss={final_train_loss:.6f} mean_val_loss={final_val_loss:.6f}")
             if best_val_loss is None or final_val_loss < best_val_loss:

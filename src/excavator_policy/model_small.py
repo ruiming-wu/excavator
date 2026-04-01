@@ -129,11 +129,16 @@ class SmallDiffusionPolicy(nn.Module):
         return out.view(noisy_action_seq.shape[0], self.horizon, self.joint_dim)
 
 
-def diffusion_loss_small(model: SmallDiffusionPolicy, obs: dict, action_seq: torch.Tensor) -> torch.Tensor:
+def flow_matching_loss_small(model: SmallDiffusionPolicy, obs: dict, action_seq: torch.Tensor) -> torch.Tensor:
     batch = action_seq.shape[0]
     t = torch.rand(batch, device=action_seq.device)
-    noise = torch.randn_like(action_seq)
     alpha = t.view(batch, 1, 1)
-    noisy_action = (1.0 - alpha) * action_seq + alpha * noise
-    pred_noise = model(obs, noisy_action, t)
-    return nn.functional.mse_loss(pred_noise, noise)
+    x0 = torch.zeros_like(action_seq)
+    x_t = (1.0 - alpha) * x0 + alpha * action_seq
+    target_velocity = action_seq - x0
+    pred_velocity = model(obs, x_t, t)
+    return nn.functional.mse_loss(pred_velocity, target_velocity)
+
+
+def diffusion_loss_small(model: SmallDiffusionPolicy, obs: dict, action_seq: torch.Tensor) -> torch.Tensor:
+    return flow_matching_loss_small(model, obs, action_seq)

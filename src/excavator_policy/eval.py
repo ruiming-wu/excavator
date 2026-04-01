@@ -4,7 +4,6 @@ import argparse
 import json
 import math
 import time
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -36,23 +35,21 @@ class EvalConfig:
     startup_timeout: float
     reset_timeout: float
     output_dir: Path | None
-    decode_max_t: float
-    max_command_delta: float
+    euler_step_size: float
 
 
 def parse_args() -> EvalConfig:
     parser = argparse.ArgumentParser(description="Evaluate policy in a live Isaac Sim ROS environment")
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--episodes", type=int, default=5)
-    parser.add_argument("--max-seconds", type=float, default=60.0)
-    parser.add_argument("--control-hz", type=float, default=15.0)
-    parser.add_argument("--sample-steps", type=int, default=8)
-    parser.add_argument("--command-chunk", type=int, default=1, help="Use only the first N predicted commands before re-inference")
+    parser.add_argument("--max-seconds", type=float, default=90.0)
+    parser.add_argument("--control-hz", type=float, default=20.0)
+    parser.add_argument("--sample-steps", type=int, default=10)
+    parser.add_argument("--command-chunk", type=int, default=4, help="Use only the first N predicted commands before re-inference")
     parser.add_argument("--startup-timeout", type=float, default=30.0)
     parser.add_argument("--reset-timeout", type=float, default=20.0)
     parser.add_argument("--output-dir", type=str, default="")
-    parser.add_argument("--decode-max-t", type=float, default=0.50, help="Maximum diffusion time used during online decoding")
-    parser.add_argument("--max-command-delta", type=float, default=0.05, help="Maximum absolute command change per control step in radians")
+    parser.add_argument("--euler-step-size", type=float, default=0.1, help="Euler integration step size for flow matching decoding")
     args = parser.parse_args()
     out_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else None
     return EvalConfig(
@@ -65,8 +62,7 @@ def parse_args() -> EvalConfig:
         startup_timeout=float(args.startup_timeout),
         reset_timeout=float(args.reset_timeout),
         output_dir=out_dir,
-        decode_max_t=float(args.decode_max_t),
-        max_command_delta=float(args.max_command_delta),
+        euler_step_size=float(args.euler_step_size),
     )
 
 
@@ -182,69 +178,18 @@ def _sample_action_sequence(
     horizon: int,
     sample_steps: int,
     device: str,
-    decode_max_t: float,
+    euler_step_size: float,
 ) -> torch.Tensor:
     batch = obs["current_state"].shape[0]
-    current_state = obs["current_state"].to(device=device, dtype=torch.float32)
-    action = current_state.unsqueeze(1).repeat(1, horizon, 1)
-    # Online rollout is very sensitive to absolute command explosions. Keep the
-    # reverse schedule in a conservative range instead of starting near t=1.0.
-    schedule = torch.linspace(min(max(decode_max_t, 0.05), 0.95), 0.0, sample_steps + 1, device=device)
+    action = torch.zeros((batch, horizon, joint_dim), device=device, dtype=torch.float32)
+    dt = float(euler_step_size)
     for step in range(sample_steps):
-        t_cur = schedule[step].expand(batch)
-        t_next = float(schedule[step + 1].item())
+        t_value = min(step * dt, 0.999)
+        t_cur = torch.full((batch,), t_value, device=device, dtype=torch.float32)
         with torch.no_grad():
-            pred_noise = model(obs, action, t_cur)
-        denom = max(1.0 - float(t_cur[0].item()), 1e-4)
-        x_hat = (action - float(t_cur[0].item()) * pred_noise) / denom
-        if t_next <= 0.0:
-            action = x_hat
-        else:
-            action = (1.0 - t_next) * x_hat + t_next * pred_noise
+            pred_velocity = model(obs, action, t_cur)
+        action = action + dt * pred_velocity
     return action
-
-
-def _load_joint_limits(joint_order: list[str]) -> dict[str, tuple[float, float]]:
-    paths = get_paths()
-    urdf_path = paths.assets / "excavator" / "excavator_4dof.urdf"
-    if not urdf_path.exists():
-        raise FileNotFoundError(f"URDF not found for eval joint limits: {urdf_path}")
-    tree = ET.parse(urdf_path)
-    root = tree.getroot()
-    limits: dict[str, tuple[float, float]] = {}
-    for joint in root.findall("joint"):
-        name = joint.get("name", "")
-        if name not in joint_order:
-            continue
-        limit = joint.find("limit")
-        if limit is None:
-            continue
-        lower = float(limit.get("lower", "-3.1415926"))
-        upper = float(limit.get("upper", "3.1415926"))
-        limits[name] = (lower, upper)
-    missing = [joint for joint in joint_order if joint not in limits]
-    if missing:
-        raise RuntimeError(f"Missing joint limits in URDF for eval: {missing}")
-    return limits
-
-
-def _safe_command(
-    cmd: np.ndarray,
-    current_state: np.ndarray,
-    joint_order: list[str],
-    joint_limits: dict[str, tuple[float, float]],
-    max_command_delta: float,
-) -> np.ndarray:
-    out = np.asarray(cmd, dtype=np.float32).copy()
-    current = np.asarray(current_state, dtype=np.float32)
-    max_delta = max(0.0, float(max_command_delta))
-    for i, joint in enumerate(joint_order):
-        lo, hi = joint_limits[joint]
-        lo_step = current[i] - max_delta
-        hi_step = current[i] + max_delta
-        out[i] = float(np.clip(out[i], max(lo, lo_step), min(hi, hi_step)))
-    return out
-
 
 class PolicyEvalNode(Node):
     def __init__(self, joint_order: list[str], image_h: int, image_w: int, point_count: int, point_dim: int, seed: int):
@@ -408,6 +353,7 @@ def _build_report(args: EvalConfig, checkpoint: Path, device: str, episodes: lis
         "max_seconds": args.max_seconds,
         "control_hz": args.control_hz,
         "sample_steps": args.sample_steps,
+        "euler_step_size": args.euler_step_size,
         "command_chunk": args.command_chunk,
         "user_success_rate": success_rate,
         "avg_final_stones_in_truck": final_stones_avg,
@@ -418,6 +364,13 @@ def _build_report(args: EvalConfig, checkpoint: Path, device: str, episodes: lis
 def _write_report(report_dir: Path, report: dict[str, Any]) -> Path:
     out_path = report_dir / "eval_metrics.json"
     out_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    return out_path
+
+
+def _append_inference_debug(report_dir: Path, payload: dict[str, Any]) -> Path:
+    out_path = report_dir / "inference_debug.jsonl"
+    with out_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(payload, ensure_ascii=False) + "\n")
     return out_path
 
 
@@ -462,7 +415,6 @@ def main() -> None:
     model, cfg = _load_model(args.checkpoint, device)
     data_cfg = cfg["data"]
     joint_order = list(data_cfg["joint_order"])
-    joint_limits = _load_joint_limits(joint_order)
 
     pygame.init()
     pygame.display.set_caption("Excavator Policy Eval")
@@ -483,7 +435,6 @@ def main() -> None:
     try:
         _ensure_startup(node, args.startup_timeout)
         print(f"[eval] connected: ready={node.ready} stones={node.stones_in_truck}", flush=True)
-        print(f"[eval] joint limits loaded for safe eval: {joint_limits}", flush=True)
 
         joint_dim = int(model.joint_dim)
         horizon = int(model.horizon)
@@ -497,6 +448,8 @@ def main() -> None:
         ep_start = 0.0
         action_history: list[np.ndarray] = []
         control_steps = 0
+        inference_count_total = 0
+        inference_count_episode = 0
         last_cmd = np.zeros((joint_dim,), dtype=np.float32)
         predicted_chunk: np.ndarray | None = None
         chunk_step = 0
@@ -528,6 +481,7 @@ def main() -> None:
                                 ep_start = time.monotonic()
                                 action_history = []
                                 control_steps = 0
+                                inference_count_episode = 0
                                 last_cmd = np.zeros((joint_dim,), dtype=np.float32)
                                 predicted_chunk = None
                                 chunk_step = 0
@@ -662,22 +616,37 @@ def main() -> None:
                     horizon=horizon,
                     sample_steps=args.sample_steps,
                     device=device,
-                    decode_max_t=args.decode_max_t,
+                    euler_step_size=args.euler_step_size,
                 )
                 full_seq = sampled_seq[0].detach().cpu().numpy().astype(np.float32)
+                inference_count_total += 1
+                inference_count_episode += 1
+                if inference_count_total % 10 == 0:
+                    current_state_np = obs["current_state"][0].detach().cpu().numpy().astype(np.float32)
+                    debug_payload = {
+                        "episode_index": episode_idx,
+                        "inference_count_total": inference_count_total,
+                        "inference_count_episode": inference_count_episode,
+                        "control_steps_before_inference": control_steps,
+                        "stones_in_truck": int(node.stones_in_truck),
+                        "ready": bool(node.ready),
+                        "euler_step_size": float(args.euler_step_size),
+                        "sample_steps": int(args.sample_steps),
+                        "command_chunk": int(args.command_chunk),
+                        "current_state": current_state_np.tolist(),
+                        "predicted_action_seq": full_seq.tolist(),
+                    }
+                    debug_path = _append_inference_debug(report_dir, debug_payload)
+                    print(
+                        f"[eval] debug snapshot saved: {debug_path} "
+                        f"(episode={episode_idx + 1}, inference_total={inference_count_total})",
+                        flush=True,
+                    )
                 chunk_len = min(args.command_chunk, horizon)
                 predicted_chunk = full_seq[:chunk_len]
                 chunk_step = 0
 
-            current_state_np = obs["current_state"][0].detach().cpu().numpy().astype(np.float32)
-            raw_cmd = predicted_chunk[chunk_step]
-            cmd = _safe_command(
-                cmd=raw_cmd,
-                current_state=current_state_np,
-                joint_order=joint_order,
-                joint_limits=joint_limits,
-                max_command_delta=args.max_command_delta,
-            )
+            cmd = predicted_chunk[chunk_step]
             chunk_step += 1
             node.publish_command(cmd)
             last_cmd = cmd

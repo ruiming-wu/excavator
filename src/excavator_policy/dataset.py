@@ -26,6 +26,9 @@ class DatasetConfig:
     future_start: int = 1
     horizon: int = 16
     seed: int = 42
+    hesitation_filter_enabled: bool = False
+    hesitation_zero_motion_threshold: float = 0.0
+    hesitation_full_keep_threshold: float = 0.02
 
 
 def _to_list(v):
@@ -60,6 +63,13 @@ def _named_vector(names, values, joint_order: Sequence[str]) -> np.ndarray:
     return out
 
 
+def _sequence_mean_motion(seq: np.ndarray) -> float:
+    if seq.shape[0] < 2:
+        return 0.0
+    delta = np.diff(seq, axis=0)
+    return float(np.mean(np.linalg.norm(delta, axis=-1)))
+
+
 class ExcavatorDataset(Dataset):
     def __init__(self, cfg: DatasetConfig):
         self.cfg = cfg
@@ -74,6 +84,14 @@ class ExcavatorDataset(Dataset):
         )
         self.frames_by_run: Dict[Path, pd.DataFrame] = {}
         self.index: List[Tuple[Path, int]] = []
+        self.filter_summary = {
+            "enabled": bool(cfg.hesitation_filter_enabled),
+            "total_candidates": 0,
+            "kept_samples": 0,
+            "dropped_samples": 0,
+            "zero_motion_threshold": float(cfg.hesitation_zero_motion_threshold),
+            "full_keep_threshold": float(cfg.hesitation_full_keep_threshold),
+        }
 
         min_len = cfg.future_start + cfg.horizon
         for run in self.runs:
@@ -86,10 +104,26 @@ class ExcavatorDataset(Dataset):
             self.frames_by_run[run] = frames_df
             max_start = len(frames_df) - cfg.future_start - cfg.horizon + 1
             for i in range(max_start):
-                self.index.append((run, i))
+                self.filter_summary["total_candidates"] += 1
+                if self._should_keep_sample(frames_df, i):
+                    self.index.append((run, i))
+                    self.filter_summary["kept_samples"] += 1
+                else:
+                    self.filter_summary["dropped_samples"] += 1
 
         self.joint_dim = len(cfg.joint_order)
         self.horizon = cfg.horizon
+
+    def _should_keep_sample(self, frames_df: pd.DataFrame, cur_idx: int) -> bool:
+        if not self.cfg.hesitation_filter_enabled:
+            return True
+        tgt = frames_df.iloc[cur_idx + self.cfg.future_start : cur_idx + self.cfg.future_start + self.cfg.horizon]
+        future_cmd = np.stack(
+            [_named_vector(row.get("action_name", []), row.get("action_position", []), self.cfg.joint_order) for _, row in tgt.iterrows()],
+            axis=0,
+        ).astype(np.float32)
+        mean_motion = _sequence_mean_motion(future_cmd)
+        return bool(mean_motion >= float(self.cfg.hesitation_full_keep_threshold))
 
     def __len__(self) -> int:
         return len(self.index)
@@ -157,7 +191,11 @@ class ExcavatorDataset(Dataset):
         return obs, action
 
 
-def build_dataset_from_config(data_cfg: dict, allowed_runs: Sequence[str] | None = None) -> ExcavatorDataset:
+def build_dataset_from_config(
+    data_cfg: dict,
+    allowed_runs: Sequence[str] | None = None,
+    hesitation_filter_enabled: bool | None = None,
+) -> ExcavatorDataset:
     cfg = DatasetConfig(
         aligned_root=Path(data_cfg["aligned_root"]),
         raw_root=Path(data_cfg["raw_root"]),
@@ -171,5 +209,12 @@ def build_dataset_from_config(data_cfg: dict, allowed_runs: Sequence[str] | None
         future_start=int(data_cfg.get("future_start", 1)),
         horizon=int(data_cfg.get("horizon", 16)),
         seed=int(data_cfg.get("seed", 42)),
+        hesitation_filter_enabled=bool(
+            data_cfg.get("hesitation_filter_enabled", False)
+            if hesitation_filter_enabled is None
+            else hesitation_filter_enabled
+        ),
+        hesitation_zero_motion_threshold=float(data_cfg.get("hesitation_zero_motion_threshold", 0.0)),
+        hesitation_full_keep_threshold=float(data_cfg.get("hesitation_full_keep_threshold", 0.02)),
     )
     return ExcavatorDataset(cfg)
