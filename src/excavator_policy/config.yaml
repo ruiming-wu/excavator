@@ -24,21 +24,20 @@ data:
   hesitation_full_keep_threshold: 0.02
 
 model:
-  image_out_dim: 512
-  image_pretrained: false
-  point_hidden_dims: [64, 128, 256, 512]
-  point_out_dim: 512
-  state_hidden_dims: [256, 512]
-  state_out_dim: 512
-  hidden_dim: 2048
-  time_dim: 128
+  emb_dim: 256
+  hidden_dim: 512
+  time_dim: 64
+  image_conv_channels: [16, 32, 64]
+  point_hidden_dim: 64
+  point_feature_dim: 64
+  state_hidden_dim: 128
 
 training:
   output_dir: logs
   run_name: ""
   batch_size: 32
-  epochs: 100
-  lr: 4.0e-5
+  epochs: 600
+  lr: 1.0e-4
   weight_decay: 1.0e-4
   num_workers: 2
   pin_memory: true

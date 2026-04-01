@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
+import shutil
+import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -20,7 +23,6 @@ from std_msgs.msg import Bool, Int32, String
 
 from excavator_policy.dataset import _named_vector
 from excavator_policy.model import DiffusionPolicy
-from excavator_policy.model_small import SmallDiffusionPolicy
 from excavator_sim.common import get_paths
 
 
@@ -31,25 +33,31 @@ class EvalConfig:
     max_seconds: float
     control_hz: float
     sample_steps: int
-    command_chunk: int
     startup_timeout: float
     reset_timeout: float
     output_dir: Path | None
     euler_step_size: float
+    success_hold_seconds: float
+    record_video: bool
+    record_display: str
+    record_fps: int
 
 
 def parse_args() -> EvalConfig:
     parser = argparse.ArgumentParser(description="Evaluate policy in a live Isaac Sim ROS environment")
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--episodes", type=int, default=5)
-    parser.add_argument("--max-seconds", type=float, default=90.0)
+    parser.add_argument("--max-seconds", type=float, default=60.0)
     parser.add_argument("--control-hz", type=float, default=20.0)
     parser.add_argument("--sample-steps", type=int, default=10)
-    parser.add_argument("--command-chunk", type=int, default=4, help="Use only the first N predicted commands before re-inference")
     parser.add_argument("--startup-timeout", type=float, default=30.0)
     parser.add_argument("--reset-timeout", type=float, default=20.0)
     parser.add_argument("--output-dir", type=str, default="")
     parser.add_argument("--euler-step-size", type=float, default=0.1, help="Euler integration step size for flow matching decoding")
+    parser.add_argument("--success-hold-seconds", type=float, default=5.0, help="End episode early and mark success once stones_in_truck stays > 0 for this many seconds")
+    parser.add_argument("--record-video", action="store_true", help="Record each episode to an mp4 via ffmpeg x11 capture")
+    parser.add_argument("--record-display", type=str, default=os.environ.get("DISPLAY", ":0"), help="Display target for ffmpeg x11 capture")
+    parser.add_argument("--record-fps", type=int, default=30, help="Recording frame rate when --record-video is enabled")
     args = parser.parse_args()
     out_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else None
     return EvalConfig(
@@ -58,11 +66,14 @@ def parse_args() -> EvalConfig:
         max_seconds=float(args.max_seconds),
         control_hz=float(args.control_hz),
         sample_steps=int(args.sample_steps),
-        command_chunk=max(1, int(args.command_chunk)),
         startup_timeout=float(args.startup_timeout),
         reset_timeout=float(args.reset_timeout),
         output_dir=out_dir,
         euler_step_size=float(args.euler_step_size),
+        success_hold_seconds=float(args.success_hold_seconds),
+        record_video=bool(args.record_video),
+        record_display=str(args.record_display),
+        record_fps=int(args.record_fps),
     )
 
 
@@ -71,33 +82,18 @@ def _load_model(ckpt_path: Path, device: str):
     cfg = ckpt["config"]
     data_cfg = cfg["data"]
     model_cfg = cfg["model"]
-    if "image_conv_channels" in model_cfg or "emb_dim" in model_cfg:
-        model = SmallDiffusionPolicy(
-            joint_dim=int(ckpt["joint_dim"]),
-            horizon=int(ckpt["horizon"]),
-            emb_dim=int(model_cfg.get("emb_dim", 256)),
-            hidden_dim=int(model_cfg.get("hidden_dim", 512)),
-            time_dim=int(model_cfg.get("time_dim", 64)),
-            image_conv_channels=list(model_cfg.get("image_conv_channels", [16, 32, 64])),
-            point_dim=int(data_cfg.get("point_dim", 3)),
-            point_hidden_dim=int(model_cfg.get("point_hidden_dim", 64)),
-            point_feature_dim=int(model_cfg.get("point_feature_dim", 64)),
-            state_hidden_dim=int(model_cfg.get("state_hidden_dim", 128)),
-        ).to(device)
-    else:
-        model = DiffusionPolicy(
-            joint_dim=int(ckpt["joint_dim"]),
-            horizon=int(ckpt["horizon"]),
-            hidden_dim=int(model_cfg.get("hidden_dim", 2048)),
-            time_dim=int(model_cfg.get("time_dim", 128)),
-            image_out_dim=int(model_cfg.get("image_out_dim", 512)),
-            image_pretrained=bool(model_cfg.get("image_pretrained", False)),
-            point_dim=int(data_cfg.get("point_dim", 3)),
-            point_hidden_dims=list(model_cfg.get("point_hidden_dims", [64, 128, 256, 512])),
-            point_out_dim=int(model_cfg.get("point_out_dim", 512)),
-            state_hidden_dims=list(model_cfg.get("state_hidden_dims", [256, 512])),
-            state_out_dim=int(model_cfg.get("state_out_dim", 512)),
-        ).to(device)
+    model = DiffusionPolicy(
+        joint_dim=int(ckpt["joint_dim"]),
+        horizon=int(ckpt["horizon"]),
+        emb_dim=int(model_cfg.get("emb_dim", 256)),
+        hidden_dim=int(model_cfg.get("hidden_dim", 512)),
+        time_dim=int(model_cfg.get("time_dim", 64)),
+        image_conv_channels=list(model_cfg.get("image_conv_channels", [16, 32, 64])),
+        point_dim=int(data_cfg.get("point_dim", 3)),
+        point_hidden_dim=int(model_cfg.get("point_hidden_dim", 64)),
+        point_feature_dim=int(model_cfg.get("point_feature_dim", 64)),
+        state_hidden_dim=int(model_cfg.get("state_hidden_dim", 128)),
+    ).to(device)
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
     return model, cfg
@@ -354,7 +350,7 @@ def _build_report(args: EvalConfig, checkpoint: Path, device: str, episodes: lis
         "control_hz": args.control_hz,
         "sample_steps": args.sample_steps,
         "euler_step_size": args.euler_step_size,
-        "command_chunk": args.command_chunk,
+        "success_hold_seconds": args.success_hold_seconds,
         "user_success_rate": success_rate,
         "avg_final_stones_in_truck": final_stones_avg,
         "episodes": episodes,
@@ -374,7 +370,77 @@ def _append_inference_debug(report_dir: Path, payload: dict[str, Any]) -> Path:
     return out_path
 
 
-def _draw_status(screen, font, small_font, episode_idx: int, total_episodes: int, ready: bool, model_enabled: bool, control_hz: float, command_chunk: int, stones: int) -> None:
+def _start_episode_recording(report_dir: Path, episode_index: int, display: str, fps: int) -> tuple[subprocess.Popen[str] | None, Path | None]:
+    if shutil.which("ffmpeg") is None:
+        print("[eval] ffmpeg not found; skip video recording", flush=True)
+        return None, None
+    video_dir = report_dir / "videos"
+    video_dir.mkdir(parents=True, exist_ok=True)
+    out_path = video_dir / f"episode_{episode_index + 1:03d}.mp4"
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "x11grab",
+        "-draw_mouse",
+        "0",
+        "-framerate",
+        str(max(1, fps)),
+        "-i",
+        display,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+        str(out_path),
+    ]
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        print(f"[eval] recording started: {out_path}", flush=True)
+        return proc, out_path
+    except Exception as exc:
+        print(f"[eval] failed to start recording: {exc}", flush=True)
+        return None, None
+
+
+def _stop_episode_recording(proc: subprocess.Popen[str] | None, out_path: Path | None) -> None:
+    if proc is None:
+        return
+    try:
+        if proc.poll() is None and proc.stdin is not None:
+            proc.stdin.write("q\n")
+            proc.stdin.flush()
+            proc.wait(timeout=10.0)
+    except Exception:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5.0)
+        except Exception:
+            proc.kill()
+    if out_path is not None:
+        print(f"[eval] recording saved: {out_path}", flush=True)
+
+
+def _sequence_start_from_previous(full_seq: np.ndarray, last_cmd: np.ndarray | None) -> tuple[np.ndarray, int]:
+    if full_seq.ndim != 2 or len(full_seq) == 0:
+        raise ValueError("full_seq must be a non-empty 2D array")
+    if last_cmd is None:
+        return full_seq, 0
+    diff = full_seq - last_cmd.reshape(1, -1)
+    sq_dist = np.sum(np.square(diff), axis=1)
+    start_idx = int(np.argmin(sq_dist))
+    return full_seq[start_idx:], start_idx
+
+
+def _draw_status(screen, font, small_font, episode_idx: int, total_episodes: int, ready: bool, model_enabled: bool, control_hz: float, stones: int) -> None:
     screen.fill((20, 22, 26))
     title = font.render("Excavator Policy Eval", True, (230, 230, 230))
     screen.blit(title, (24, 20))
@@ -389,7 +455,6 @@ def _draw_status(screen, font, small_font, episode_idx: int, total_episodes: int
         (infer_text, infer_color),
         (f"episode: {episode_idx + 1}/{total_episodes}", (220, 220, 220)),
         (f"control_hz: {control_hz:.1f}", (220, 220, 220)),
-        (f"command_chunk: {command_chunk}", (220, 220, 220)),
         (f"stones_in_truck: {stones}", (220, 220, 220)),
     ]
     y = 80
@@ -400,6 +465,7 @@ def _draw_status(screen, font, small_font, episode_idx: int, total_episodes: int
     hint_y = 300
     hints = [
         "m: start / finish one episode",
+        "a: start auto evaluation",
         "s / f: mark last finished episode succeed / fail",
         "r: manual reset environment",
         "q: quit evaluation",
@@ -455,6 +521,9 @@ def main() -> None:
         chunk_step = 0
         pending_manual_reset = False
         pending_finished_report: dict[str, Any] | None = None
+        auto_mode = False
+        record_proc: subprocess.Popen[str] | None = None
+        record_path: Path | None = None
 
         print("[eval] waiting for 'm' to start episode 1", flush=True)
 
@@ -467,6 +536,34 @@ def main() -> None:
                         raise KeyboardInterrupt
                     if event.key == pygame.K_r:
                         pending_manual_reset = True
+                    elif event.key == pygame.K_a:
+                        if awaiting_user_label:
+                            print("[eval] episode finished already; waiting for label or auto finalize", flush=True)
+                        elif episode_active:
+                            print("[eval] auto evaluation can only start when no episode is running", flush=True)
+                        elif episode_idx >= args.episodes:
+                            print(f"[eval] already collected {args.episodes} episodes; press q to quit", flush=True)
+                        elif not node.ready:
+                            print("[eval] cannot start auto evaluation: simulator not ready", flush=True)
+                        else:
+                            auto_mode = True
+                            episode_active = True
+                            model_enabled = True
+                            ep_start = time.monotonic()
+                            action_history = []
+                            control_steps = 0
+                            inference_count_episode = 0
+                            last_cmd = np.zeros((joint_dim,), dtype=np.float32)
+                            predicted_chunk = None
+                            chunk_step = 0
+                            if args.record_video:
+                                record_proc, record_path = _start_episode_recording(
+                                    report_dir=report_dir,
+                                    episode_index=episode_idx,
+                                    display=args.record_display,
+                                    fps=args.record_fps,
+                                )
+                            print(f"[eval] auto episode {episode_idx + 1} started", flush=True)
                     elif event.key == pygame.K_m:
                         if awaiting_user_label:
                             print("[eval] episode finished already; press 's' or 'f' first", flush=True)
@@ -485,10 +582,22 @@ def main() -> None:
                                 last_cmd = np.zeros((joint_dim,), dtype=np.float32)
                                 predicted_chunk = None
                                 chunk_step = 0
+                                auto_mode = False
+                                if args.record_video:
+                                    record_proc, record_path = _start_episode_recording(
+                                        report_dir=report_dir,
+                                        episode_index=episode_idx,
+                                        display=args.record_display,
+                                        fps=args.record_fps,
+                                    )
                                 print(f"[eval] episode {episode_idx + 1} started", flush=True)
                         else:
                             episode_active = False
                             model_enabled = False
+                            finished_video_path = record_path
+                            _stop_episode_recording(record_proc, record_path)
+                            record_proc = None
+                            record_path = None
                             duration = float(time.monotonic() - ep_start)
                             total_stones = int(node.latest_episode_meta.get("stone_count", 0) or 0)
                             success_threshold = int(math.ceil(total_stones * 0.10)) if total_stones > 0 else 0
@@ -506,6 +615,7 @@ def main() -> None:
                                 "action_smoothness": _action_smoothness(action_np),
                                 "last_command": last_cmd.tolist(),
                                 "episode_meta": node.latest_episode_meta,
+                                "video_path": None if finished_video_path is None else str(finished_video_path),
                             }
                             awaiting_user_label = True
                             print(
@@ -556,7 +666,6 @@ def main() -> None:
                 ready=node.ready,
                 model_enabled=model_enabled,
                 control_hz=args.control_hz,
-                command_chunk=args.command_chunk,
                 stones=node.stones_in_truck,
             )
 
@@ -564,10 +673,14 @@ def main() -> None:
                 print("[eval] manual reset requested", flush=True)
                 episode_active = False
                 model_enabled = False
+                auto_mode = False
                 awaiting_user_label = False
                 pending_finished_report = None
                 predicted_chunk = None
                 chunk_step = 0
+                _stop_episode_recording(record_proc, record_path)
+                record_proc = None
+                record_path = None
                 _prepare_episode(node, args.reset_timeout)
                 pending_manual_reset = False
                 print(f"[eval] waiting for 'm' to start episode {episode_idx + 1}", flush=True)
@@ -580,6 +693,10 @@ def main() -> None:
             if (step_start - ep_start) >= args.max_seconds:
                 episode_active = False
                 model_enabled = False
+                finished_video_path = record_path
+                _stop_episode_recording(record_proc, record_path)
+                record_proc = None
+                record_path = None
                 duration = float(time.monotonic() - ep_start)
                 total_stones = int(node.latest_episode_meta.get("stone_count", 0) or 0)
                 success_threshold = int(math.ceil(total_stones * 0.10)) if total_stones > 0 else 0
@@ -598,9 +715,45 @@ def main() -> None:
                     "last_command": last_cmd.tolist(),
                     "episode_meta": node.latest_episode_meta,
                     "finished_by": "timeout",
+                    "video_path": None if finished_video_path is None else str(finished_video_path),
                 }
-                awaiting_user_label = True
-                print(f"[eval] episode {episode_idx + 1} reached max_seconds. press 's' or 'f' to label it", flush=True)
+                if auto_mode:
+                    pending_finished_report["user_result"] = "success" if final_stones > 0 else "fail"
+                    pending_finished_report["user_success"] = bool(final_stones > 0)
+                    episodes.append(pending_finished_report)
+                    episode_idx += 1
+                    out_path = _write_report(report_dir, _build_report(args, args.checkpoint, device, episodes))
+                    print(
+                        f"[eval] auto episode {episode_idx} finished: "
+                        f"stones={final_stones} result={pending_finished_report['user_result']} saved={out_path}",
+                        flush=True,
+                    )
+                    pending_finished_report = None
+                    if episode_idx >= args.episodes:
+                        auto_mode = False
+                        print(f"[eval] auto evaluation completed: {episode_idx}/{args.episodes}", flush=True)
+                    else:
+                        _prepare_episode(node, args.reset_timeout)
+                        episode_active = True
+                        model_enabled = True
+                        ep_start = time.monotonic()
+                        action_history = []
+                        control_steps = 0
+                        inference_count_episode = 0
+                        last_cmd = np.zeros((joint_dim,), dtype=np.float32)
+                        predicted_chunk = None
+                        chunk_step = 0
+                        if args.record_video:
+                            record_proc, record_path = _start_episode_recording(
+                                report_dir=report_dir,
+                                episode_index=episode_idx,
+                                display=args.record_display,
+                                fps=args.record_fps,
+                            )
+                        print(f"[eval] auto episode {episode_idx + 1} started", flush=True)
+                else:
+                    awaiting_user_label = True
+                    print(f"[eval] episode {episode_idx + 1} reached max_seconds. press 's' or 'f' to label it", flush=True)
                 continue
 
             if not node.ready or not node.has_fresh_observation():
@@ -621,6 +774,13 @@ def main() -> None:
                 full_seq = sampled_seq[0].detach().cpu().numpy().astype(np.float32)
                 inference_count_total += 1
                 inference_count_episode += 1
+                predicted_chunk, matched_start_idx = _sequence_start_from_previous(
+                    full_seq=full_seq,
+                    last_cmd=None if control_steps == 0 else last_cmd,
+                )
+                if len(predicted_chunk) == 0:
+                    predicted_chunk = full_seq[-1:].copy()
+                    matched_start_idx = max(len(full_seq) - 1, 0)
                 if inference_count_total % 10 == 0:
                     current_state_np = obs["current_state"][0].detach().cpu().numpy().astype(np.float32)
                     debug_payload = {
@@ -632,18 +792,17 @@ def main() -> None:
                         "ready": bool(node.ready),
                         "euler_step_size": float(args.euler_step_size),
                         "sample_steps": int(args.sample_steps),
-                        "command_chunk": int(args.command_chunk),
                         "current_state": current_state_np.tolist(),
                         "predicted_action_seq": full_seq.tolist(),
+                        "matched_start_idx": int(matched_start_idx),
+                        "executed_action_seq": predicted_chunk.tolist(),
                     }
                     debug_path = _append_inference_debug(report_dir, debug_payload)
                     print(
                         f"[eval] debug snapshot saved: {debug_path} "
-                        f"(episode={episode_idx + 1}, inference_total={inference_count_total})",
+                        f"(episode={episode_idx + 1}, inference_total={inference_count_total}, start_idx={matched_start_idx})",
                         flush=True,
                     )
-                chunk_len = min(args.command_chunk, horizon)
-                predicted_chunk = full_seq[:chunk_len]
                 chunk_step = 0
 
             cmd = predicted_chunk[chunk_step]
@@ -663,12 +822,16 @@ def main() -> None:
         print(json.dumps(report, indent=2, ensure_ascii=False), flush=True)
     except KeyboardInterrupt:
         print("[eval] interrupted by user, saving current report before exit", flush=True)
+        if "record_proc" in locals():
+            _stop_episode_recording(record_proc, record_path)
         if "report_dir" in locals():
             report = _build_report(args, args.checkpoint, device, episodes if "episodes" in locals() else [])
             out_path = _write_report(report_dir, report)
             print(f"[eval] report saved: {out_path}", flush=True)
             print(json.dumps(report, indent=2, ensure_ascii=False), flush=True)
     finally:
+        if "record_proc" in locals():
+            _stop_episode_recording(record_proc, record_path)
         pygame.quit()
         node.destroy_node()
         if rclpy.ok():

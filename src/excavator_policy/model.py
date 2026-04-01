@@ -3,107 +3,78 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-try:
-    from torchvision.models import ResNet18_Weights, resnet18
-except ImportError:  # pragma: no cover - handled at runtime when model is instantiated
-    ResNet18_Weights = None
-    resnet18 = None
 
-
-class ResNet18ImageEncoder(nn.Module):
-    def __init__(self, out_dim: int = 512, pretrained: bool = False):
+class ImageEncoder(nn.Module):
+    def __init__(self, conv_channels: list[int] | None = None, out_dim: int = 64):
         super().__init__()
-        if resnet18 is None:
-            raise ImportError("torchvision is required for the ResNet-18 image encoder. Please install torchvision.")
-        weights = None
-        if pretrained:
-            if ResNet18_Weights is None:
-                raise ImportError("Installed torchvision does not expose ResNet18_Weights. Please update torchvision.")
-            weights = ResNet18_Weights.IMAGENET1K_V1
-        backbone = resnet18(weights=weights)
-        in_features = backbone.fc.in_features
-        backbone.fc = nn.Identity()
-        self.backbone = backbone
-        self.proj = nn.Sequential(
-            nn.Linear(in_features, out_dim),
+        conv_channels = conv_channels or [16, 32, 64]
+        if len(conv_channels) != 3:
+            raise ValueError(f"ImageEncoder expects exactly 3 conv channels, got {conv_channels}")
+        c1, c2, c3 = conv_channels
+        self.net = nn.Sequential(
+            nn.Conv2d(3, c1, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(c1, c2, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(c2, c3, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+            nn.Linear(c3, out_dim),
             nn.ReLU(),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        feat = self.backbone(x)
-        return self.proj(feat)
+        return self.net(x)
 
 
-class PointNetEncoder(nn.Module):
-    def __init__(self, point_dim: int = 3, hidden_dims: list[int] | None = None, out_dim: int = 512):
+class PointEncoder(nn.Module):
+    def __init__(self, point_dim: int = 3, hidden_dim: int = 64, out_dim: int = 64):
         super().__init__()
-        hidden_dims = hidden_dims or [64, 128, 256, 512]
-        layers = []
-        prev = point_dim
-        for h in hidden_dims:
-            layers.extend([
-                nn.Linear(prev, h),
-                nn.ReLU(),
-            ])
-            prev = h
-        self.point_mlp = nn.Sequential(*layers)
-        self.proj = nn.Sequential(
-            nn.Linear(prev, out_dim),
+        self.net = nn.Sequential(
+            nn.Linear(point_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, out_dim),
             nn.ReLU(),
         )
 
     def forward(self, points: torch.Tensor) -> torch.Tensor:
-        point_feat = self.point_mlp(points)
-        global_feat = point_feat.max(dim=1).values
-        return self.proj(global_feat)
-
-
-class JointStateEncoder(nn.Module):
-    def __init__(self, joint_dim: int, hidden_dims: list[int] | None = None, out_dim: int = 512):
-        super().__init__()
-        hidden_dims = hidden_dims or [256, 512]
-        dims = [joint_dim, *hidden_dims]
-        layers = []
-        for in_dim, out_hidden in zip(dims[:-1], dims[1:]):
-            layers.extend([
-                nn.Linear(in_dim, out_hidden),
-                nn.ReLU(),
-            ])
-        if hidden_dims[-1] != out_dim:
-            layers.extend([
-                nn.Linear(hidden_dims[-1], out_dim),
-                nn.ReLU(),
-            ])
-        self.net = nn.Sequential(*layers)
-
-    def forward(self, state: torch.Tensor) -> torch.Tensor:
-        return self.net(state)
+        point_feat = self.net(points)
+        return point_feat.mean(dim=1)
 
 
 class MultiModalEncoder(nn.Module):
     def __init__(
         self,
         joint_dim: int,
-        image_out_dim: int = 512,
-        image_pretrained: bool = False,
+        emb_dim: int = 256,
+        image_conv_channels: list[int] | None = None,
         point_dim: int = 3,
-        point_hidden_dims: list[int] | None = None,
-        point_out_dim: int = 512,
-        state_hidden_dims: list[int] | None = None,
-        state_out_dim: int = 512,
+        point_hidden_dim: int = 64,
+        point_feature_dim: int = 64,
+        state_hidden_dim: int = 128,
     ):
         super().__init__()
-        self.image_encoder = ResNet18ImageEncoder(out_dim=image_out_dim, pretrained=image_pretrained)
-        self.point_encoder = PointNetEncoder(point_dim=point_dim, hidden_dims=point_hidden_dims, out_dim=point_out_dim)
-        self.state_encoder = JointStateEncoder(joint_dim=joint_dim, hidden_dims=state_hidden_dims, out_dim=state_out_dim)
-        self.condition_dim = image_out_dim * 2 + point_out_dim + state_out_dim
+        image_feature_dim = point_feature_dim
+        self.image_encoder = ImageEncoder(conv_channels=image_conv_channels, out_dim=image_feature_dim)
+        self.point_encoder = PointEncoder(point_dim=point_dim, hidden_dim=point_hidden_dim, out_dim=point_feature_dim)
+        self.state_encoder = nn.Sequential(
+            nn.Linear(joint_dim, state_hidden_dim),
+            nn.ReLU(),
+        )
+        fusion_in = image_feature_dim * 2 + point_feature_dim + state_hidden_dim
+        self.fusion = nn.Sequential(
+            nn.Linear(fusion_in, emb_dim),
+            nn.ReLU(),
+        )
+        self.condition_dim = emb_dim
 
     def forward(self, obs: dict) -> torch.Tensor:
         driver_f = self.image_encoder(obs["camera_driver"])
         bucket_f = self.image_encoder(obs["camera_bucket"])
         point_f = self.point_encoder(obs["points"])
         state_f = self.state_encoder(obs["current_state"])
-        return torch.cat([driver_f, bucket_f, point_f, state_f], dim=-1)
+        return self.fusion(torch.cat([driver_f, bucket_f, point_f, state_f], dim=-1))
 
 
 class DiffusionPolicy(nn.Module):
@@ -111,15 +82,14 @@ class DiffusionPolicy(nn.Module):
         self,
         joint_dim: int,
         horizon: int,
-        hidden_dim: int = 2048,
-        time_dim: int = 128,
-        image_out_dim: int = 512,
-        image_pretrained: bool = False,
+        emb_dim: int = 256,
+        hidden_dim: int = 512,
+        time_dim: int = 64,
+        image_conv_channels: list[int] | None = None,
         point_dim: int = 3,
-        point_hidden_dims: list[int] | None = None,
-        point_out_dim: int = 512,
-        state_hidden_dims: list[int] | None = None,
-        state_out_dim: int = 512,
+        point_hidden_dim: int = 64,
+        point_feature_dim: int = 64,
+        state_hidden_dim: int = 128,
     ):
         super().__init__()
         self.joint_dim = joint_dim
@@ -127,13 +97,12 @@ class DiffusionPolicy(nn.Module):
         self.action_dim = joint_dim * horizon
         self.encoder = MultiModalEncoder(
             joint_dim=joint_dim,
-            image_out_dim=image_out_dim,
-            image_pretrained=image_pretrained,
+            emb_dim=emb_dim,
+            image_conv_channels=image_conv_channels,
             point_dim=point_dim,
-            point_hidden_dims=point_hidden_dims,
-            point_out_dim=point_out_dim,
-            state_hidden_dims=state_hidden_dims,
-            state_out_dim=state_out_dim,
+            point_hidden_dim=point_hidden_dim,
+            point_feature_dim=point_feature_dim,
+            state_hidden_dim=state_hidden_dim,
         )
         self.condition_dim = self.encoder.condition_dim
         self.time_mlp = nn.Sequential(

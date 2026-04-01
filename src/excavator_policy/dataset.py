@@ -28,7 +28,7 @@ class DatasetConfig:
     seed: int = 42
     hesitation_filter_enabled: bool = False
     hesitation_zero_motion_threshold: float = 0.0
-    hesitation_full_keep_threshold: float = 0.02
+    hesitation_full_keep_threshold: float = 0.025
 
 
 def _to_list(v):

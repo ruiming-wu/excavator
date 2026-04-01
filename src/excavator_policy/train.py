@@ -16,7 +16,6 @@ from torch.utils.data import DataLoader
 from excavator_policy.config import load_config
 from excavator_policy.dataset import build_dataset_from_config
 from excavator_policy.model import DiffusionPolicy, flow_matching_loss
-from excavator_policy.model_small import SmallDiffusionPolicy, flow_matching_loss_small
 
 
 def _collate(batch):
@@ -42,7 +41,6 @@ def _set_seed(seed: int) -> None:
 def parse_args():
     parser = argparse.ArgumentParser(description="Train excavation diffusion policy")
     parser.add_argument("--config", default="")
-    parser.add_argument("--size", choices=["big", "small"], default="big")
     return parser.parse_args()
 
 
@@ -208,7 +206,7 @@ def _query_gpu_metrics(device: str) -> dict[str, float]:
 
 def main():
     args = parse_args()
-    default_cfg = Path(__file__).with_name("config_small.yaml" if args.size == "small" else "config.yaml")
+    default_cfg = Path(__file__).with_name("config.yaml")
     cfg_path = args.config or str(default_cfg)
     cfg = load_config(cfg_path)
     data_cfg = cfg["data"]
@@ -224,7 +222,7 @@ def main():
         run_name = configured_run_name
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_name = f"{timestamp}_small" if args.size == "small" else timestamp
+        run_name = timestamp
     out_dir = Path(train_cfg.get("output_dir", "logs")) / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -246,35 +244,19 @@ def main():
 
     joint_dim = len(data_cfg["joint_order"])
     horizon = int(data_cfg["horizon"])
-    if args.size == "small":
-        model = SmallDiffusionPolicy(
-            joint_dim=joint_dim,
-            horizon=horizon,
-            emb_dim=int(model_cfg.get("emb_dim", 256)),
-            hidden_dim=int(model_cfg.get("hidden_dim", 512)),
-            time_dim=int(model_cfg.get("time_dim", 64)),
-            image_conv_channels=list(model_cfg.get("image_conv_channels", [16, 32, 64])),
-            point_dim=int(data_cfg.get("point_dim", 3)),
-            point_hidden_dim=int(model_cfg.get("point_hidden_dim", 64)),
-            point_feature_dim=int(model_cfg.get("point_feature_dim", 64)),
-            state_hidden_dim=int(model_cfg.get("state_hidden_dim", 128)),
-        ).to(device)
-        loss_fn = flow_matching_loss_small
-    else:
-        model = DiffusionPolicy(
-            joint_dim=joint_dim,
-            horizon=horizon,
-            hidden_dim=int(model_cfg.get("hidden_dim", 2048)),
-            time_dim=int(model_cfg.get("time_dim", 128)),
-            image_out_dim=int(model_cfg.get("image_out_dim", 512)),
-            image_pretrained=bool(model_cfg.get("image_pretrained", False)),
-            point_dim=int(data_cfg.get("point_dim", 3)),
-            point_hidden_dims=list(model_cfg.get("point_hidden_dims", [64, 128, 256, 512])),
-            point_out_dim=int(model_cfg.get("point_out_dim", 512)),
-            state_hidden_dims=list(model_cfg.get("state_hidden_dims", [256, 512])),
-            state_out_dim=int(model_cfg.get("state_out_dim", 512)),
-        ).to(device)
-        loss_fn = flow_matching_loss
+    model = DiffusionPolicy(
+        joint_dim=joint_dim,
+        horizon=horizon,
+        emb_dim=int(model_cfg.get("emb_dim", 256)),
+        hidden_dim=int(model_cfg.get("hidden_dim", 512)),
+        time_dim=int(model_cfg.get("time_dim", 64)),
+        image_conv_channels=list(model_cfg.get("image_conv_channels", [16, 32, 64])),
+        point_dim=int(data_cfg.get("point_dim", 3)),
+        point_hidden_dim=int(model_cfg.get("point_hidden_dim", 64)),
+        point_feature_dim=int(model_cfg.get("point_feature_dim", 64)),
+        state_hidden_dim=int(model_cfg.get("state_hidden_dim", 128)),
+    ).to(device)
+    loss_fn = flow_matching_loss
     optim = torch.optim.AdamW(
         model.parameters(),
         lr=float(train_cfg.get("lr", 1e-4)),
@@ -285,7 +267,6 @@ def main():
     param_stats = _model_stats(model)
     manifest = {
         "config_path": cfg.get("_config_path", ""),
-        "model_size": args.size,
         "device": device,
         "seed": seed,
         "train_runs": train_runs,
@@ -307,7 +288,6 @@ def main():
     _save_json(out_dir / "manifest.json", manifest)
 
     print(f"[train] run_name={run_name}")
-    print(f"[train] model_size={args.size}")
     print(f"[train] device={device} seed={seed}")
     print(f"[train] train_runs({len(train_runs)}): {train_runs}")
     print(f"[train] val_runs({len(val_runs)}): {val_runs}")
